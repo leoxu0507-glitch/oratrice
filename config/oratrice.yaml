@@ -1,0 +1,49 @@
+# Oratrice configuration contract v1.
+# Paths are resolved relative to this file.  Keep credentials as ${ENV_VAR}
+# references; literal API keys, tokens, and passwords are rejected by the loader.
+version: 1
+
+providers:
+  local_llama:
+    id: provider.local_llama
+    name: Local llama.cpp server
+    type: openai_compatible
+    kind: local
+    base_url: http://127.0.0.1:8080/v1
+
+runtimes:
+  llama_cpp:
+    id: runtime.llama_cpp
+    name: llama.cpp
+    type: executable
+    executable: ../../../runtimes/llama.cpp/llama-server.exe
+    working_dir: ../../../runtimes/llama.cpp
+    provider: provider.local_llama
+    args:
+      - --host
+      - 127.0.0.1
+      - --port
+      - "8080"
+
+models:
+  gpt_oss:
+    id: model.gpt_oss
+    name: GPT-OSS 20B
+    runtime: runtime.llama_cpp
+    provider: provider.local_llama
+    path: ../../../models/GPT-OSS/openai_gpt-oss-20b-MXFP4.gguf
+    enabled: true
+
+routes:
+  default:
+    id: route.default
+    model: model.gpt_oss
+    provider: provider.local_llama
+    policy: policy.local_only
+
+policies:
+  local_only:
+    id: policy.local_only
+    name: Local-only inference
+    require_local: true
+    allow_cloud: false

@@ -1,0 +1,53 @@
+# Human/machine-readable contract summary.  The Python loader in
+# core/configuration.py is authoritative and performs the cross-reference
+# checks that a structural YAML schema cannot express.
+version: 1
+sections:
+  models:
+    required: [id, runtime]
+    fields:
+      id: string
+      name: string
+      runtime: runtime-id
+      provider: provider-id
+      path: relative-or-absolute-path
+      enabled: boolean
+  runtimes:
+    required: [id, type]
+    fields:
+      id: string
+      name: string
+      type: string
+      executable: relative-or-absolute-path
+      working_dir: relative-or-absolute-path
+      provider: provider-id
+      args: list[string]
+      enabled: boolean
+  providers:
+    required: [id, type]
+    fields:
+      id: string
+      name: string
+      type: string
+      kind: [local, cloud]
+      base_url: string
+      api_key: env-reference-only
+      enabled: boolean
+  routes:
+    required: [id, model, provider]
+    fields:
+      id: string
+      model: model-id
+      provider: provider-id
+      policy: policy-id
+      enabled: boolean
+  policies:
+    required: [id]
+    fields:
+      id: string
+      name: string
+      require_local: boolean
+      allow_cloud: boolean
+      allowed_providers: list[provider-id]
+      enabled: boolean
+

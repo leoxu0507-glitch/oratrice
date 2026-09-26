@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Oratrice local-first AI assistant">
+    <title>Oratrice</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">LOCAL-FIRST AI</p>
+          <h1>Oratrice</h1>
+        </div>
+        <div class="service-state" aria-live="polite">
+          <span id="status-dot" class="status-dot status-unknown" aria-hidden="true"></span>
+          <span id="status-label">Checking services</span>
+        </div>
+      </header>
+
+      <section id="conversation" class="conversation" aria-label="Conversation" aria-live="polite">
+        <div id="empty-state" class="empty-state">
+          <p class="empty-mark" aria-hidden="true">✦</p>
+          <h2>Talk to Oratrice</h2>
+          <p>Messages are routed by the local Core to your configured models.</p>
+        </div>
+      </section>
+
+      <p id="notice" class="notice" role="status" aria-live="polite"></p>
+
+      <form id="chat-form" class="composer">
+        <label class="sr-only" for="message-input">Message</label>
+        <textarea id="message-input" rows="3" maxlength="12000" placeholder="Type a message... (Enter to send, Shift+Enter for a new line)" autocomplete="off" spellcheck="true"></textarea>
+        <div class="composer-footer">
+          <span class="hint">This page does not save chat history</span>
+          <button id="send-button" type="submit">Send</button>
+        </div>
+      </form>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

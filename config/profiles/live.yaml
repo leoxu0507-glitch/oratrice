@@ -1,0 +1,492 @@
+# Oratrice live service profile (M1-01).
+#
+# All relative paths in this file are resolved from this file's directory:
+# D:/AI/projects/Oratrice/config/profiles/live.yaml.  This profile is
+# declarative only; it does not start processes or contain credentials.
+version: 1
+
+providers:
+  gemma_router:
+    id: provider.gemma_router
+    name: Gemma Router
+    type: openai_compatible
+    kind: local
+    base_url: http://127.0.0.1:8090/v1
+    alias: gemma-router
+    health_endpoint: http://127.0.0.1:8090/health
+    gateway_alias: gemma-router
+
+  gpt_oss:
+    id: provider.gpt_oss
+    name: GPT-OSS llama.cpp
+    type: openai_compatible
+    kind: local
+    base_url: http://127.0.0.1:8080/v1
+    alias: gpt-oss
+    health_endpoint: http://127.0.0.1:8080/health
+    gateway_alias: gpt_oss
+
+  qwen_vl:
+    id: provider.qwen_vl
+    name: Qwen2.5-VL llama.cpp
+    type: openai_compatible
+    kind: local
+    base_url: http://127.0.0.1:8082/v1
+    alias: qwen-vl
+    health_endpoint: http://127.0.0.1:8082/health
+    gateway_alias: qwen_vl
+
+  litellm_gateway:
+    id: provider.litellm_gateway
+    name: LiteLLM Gateway
+    type: litellm_gateway
+    kind: local
+    base_url: http://127.0.0.1:4000/v1
+    api_key: ${ORATRICE_LITELLM_MASTER_KEY}
+    alias: litellm
+    health_endpoint: http://127.0.0.1:4000/health/liveliness
+    gateway_alias: litellm
+    model_aliases:
+      gpt_oss: gpt_oss
+      qwen_vl: qwen_vl
+
+  # Cloud is still transported through the local LiteLLM gateway.  Keeping a
+  # distinct provider ID lets policy checks distinguish opt-in cloud traffic
+  # without exposing a DeepSeek credential to Core.
+  litellm_cloud:
+    id: provider.litellm_cloud
+    name: LiteLLM Gateway (cloud opt-in)
+    type: litellm_gateway
+    kind: cloud
+    base_url: http://127.0.0.1:4000/v1
+    api_key: ${ORATRICE_LITELLM_MASTER_KEY}
+    alias: litellm-cloud
+    health_endpoint: http://127.0.0.1:4000/health/liveliness
+    gateway_alias: litellm
+    model_aliases:
+      deepseek_reasoner: deepseek_reasoner
+
+  core_api:
+    id: provider.core_api
+    name: Oratrice Core API
+    type: oratrice_core_api
+    kind: local
+    base_url: http://127.0.0.1:8000
+    alias: core-api
+    health_endpoint: http://127.0.0.1:8000/health
+
+runtimes:
+  gemma_router:
+    id: runtime.gemma_router
+    name: Gemma Router llama.cpp
+    type: executable
+    executable: ../../../../runtimes/llama.cpp/llama-server.exe
+    working_dir: ../../../../runtimes/llama.cpp
+    provider: provider.gemma_router
+    args:
+      - --model
+      - ../../models/Gemma-3n-E4B/gemma-3n-E4B-it-Q5_K_M.gguf
+      - --host
+      - 127.0.0.1
+      - --port
+      - "8090"
+      - -ngl
+      - "999"
+      - --flash-attn
+      - "on"
+      - -t
+      - "16"
+
+  gpt_oss:
+    id: runtime.gpt_oss
+    name: GPT-OSS llama.cpp
+    type: executable
+    executable: ../../../../runtimes/llama.cpp/llama-server.exe
+    working_dir: ../../../../runtimes/llama.cpp
+    provider: provider.gpt_oss
+    args:
+      - --model
+      - ../../models/GPT-OSS/openai_gpt-oss-20b-MXFP4.gguf
+      - --host
+      - 127.0.0.1
+      - --port
+      - "8080"
+      - -ngl
+      - "999"
+      - --flash-attn
+      - "on"
+      - -t
+      - "16"
+
+  qwen_vl:
+    id: runtime.qwen_vl
+    name: Qwen2.5-VL llama.cpp
+    type: executable
+    executable: ../../../../runtimes/llama.cpp/llama-server.exe
+    working_dir: ../../../../runtimes/llama.cpp
+    provider: provider.qwen_vl
+    args:
+      - --model
+      - ../../models/Qwen2.5-VL-3B/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf
+      - --mmproj
+      - ../../models/Qwen2.5-VL-3B/mmproj-Qwen2.5-VL-3B-Instruct-f16.gguf
+      - --host
+      - 127.0.0.1
+      - --port
+      - "8082"
+      - -ngl
+      - "999"
+      - --flash-attn
+      - "on"
+      - -t
+      - "16"
+
+  litellm_gateway:
+    id: runtime.litellm_gateway
+    name: LiteLLM Gateway
+    type: service
+    working_dir: ../../../../infrastructure/litellm
+    args:
+      - --config
+      - config.yaml
+      - --host
+      - 127.0.0.1
+      - --port
+      - "4000"
+
+  core_api:
+    id: runtime.core_api
+    name: Oratrice Core API
+    type: service
+    working_dir: ../..
+    args:
+      - -m
+      - uvicorn
+      - oratrice_api.main:app
+      - --host
+      - 127.0.0.1
+      - --port
+      - "8000"
+
+models:
+  gemma_router:
+    id: model.gemma_router
+    name: Gemma 3n E4B Router
+    runtime: runtime.gemma_router
+    provider: provider.gemma_router
+    path: ../../../../models/Gemma-3n-E4B/gemma-3n-E4B-it-Q5_K_M.gguf
+    enabled: true
+    alias: gemma-router
+    role: router
+
+  gpt_oss:
+    id: model.gpt_oss
+    name: GPT-OSS 20B
+    runtime: runtime.gpt_oss
+    provider: provider.gpt_oss
+    path: ../../../../models/GPT-OSS/openai_gpt-oss-20b-MXFP4.gguf
+    enabled: true
+    alias: gpt-oss
+    gateway_alias: gpt_oss
+
+  qwen_vl:
+    id: model.qwen_vl
+    name: Qwen2.5-VL-3B Instruct
+    runtime: runtime.qwen_vl
+    provider: provider.qwen_vl
+    # `path` and `main_model_path` identify the same main model.  The explicit
+    # aliases make the multimodal contract unambiguous to profile consumers.
+    path: ../../../../models/Qwen2.5-VL-3B/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf
+    main_model: ../../../../models/Qwen2.5-VL-3B/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf
+    main_model_path: ../../../../models/Qwen2.5-VL-3B/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf
+    mmproj: ../../../../models/Qwen2.5-VL-3B/mmproj-Qwen2.5-VL-3B-Instruct-f16.gguf
+    mmproj_path: ../../../../models/Qwen2.5-VL-3B/mmproj-Qwen2.5-VL-3B-Instruct-f16.gguf
+    enabled: true
+    alias: qwen-vl
+    gateway_alias: qwen_vl
+
+  deepseek_reasoner:
+    id: model.deepseek_reasoner
+    name: DeepSeek Reasoner (LiteLLM cloud opt-in)
+    provider: provider.litellm_cloud
+    enabled: true
+    alias: deepseek-reasoner
+    gateway_alias: deepseek_reasoner
+
+routes:
+  default:
+    id: route.default
+    model: model.gpt_oss
+    provider: provider.litellm_gateway
+    policy: policy.local_only
+    gateway_alias: gpt_oss
+
+  gemma_router:
+    id: route.gemma_router
+    model: model.gemma_router
+    provider: provider.gemma_router
+    policy: policy.local_only
+
+  qwen_vl:
+    id: route.qwen_vl
+    model: model.qwen_vl
+    provider: provider.litellm_gateway
+    policy: policy.local_only
+    gateway_alias: qwen_vl
+
+  deepseek_reasoner:
+    id: route.deepseek_reasoner
+    model: model.deepseek_reasoner
+    provider: provider.litellm_cloud
+    policy: policy.cloud_opt_in
+    gateway_alias: deepseek_reasoner
+
+  litellm_gateway:
+    id: route.litellm_gateway
+    model: model.gpt_oss
+    provider: provider.litellm_gateway
+    policy: policy.local_only
+    gateway_alias: gpt_oss
+
+policies:
+  local_only:
+    id: policy.local_only
+    name: Local-only live inference
+    require_local: true
+    allow_cloud: false
+
+  cloud_opt_in:
+    id: policy.cloud_opt_in
+    name: Explicit cloud inference through LiteLLM
+    require_local: false
+    allow_cloud: true
+    allowed_providers:
+      - provider.litellm_cloud
+
+defaults:
+  profile: live
+  host: 127.0.0.1
+  # M2 one-click startup plan.  This is orchestration metadata only; Core and
+  # the router remain provider/model agnostic.  Qwen stays opt-in because its
+  # LiteLLM vision path is deferred and the host has limited shared VRAM.
+  launcher:
+    attempt_limit: 3
+    ui_url: http://127.0.0.1:8000/ui/
+    ui_health_url: http://127.0.0.1:8000/live
+    open_ui_if_available: true
+    targets:
+      - id: gpt_oss
+        runtime: runtime.gpt_oss
+        timeout: 180
+        health_endpoint: http://127.0.0.1:8080/health
+      - id: gemma_router
+        runtime: runtime.gemma_router
+        timeout: 180
+        argument_overrides:
+          "-ngl": "0"
+        health_endpoint: http://127.0.0.1:8090/health
+      - id: litellm_gateway
+        runtime: runtime.litellm_gateway
+        timeout: 120
+        executable_override: ../../../../infrastructure/litellm/.venv-m7-03/Scripts/litellm.exe
+        health_endpoint: http://127.0.0.1:4000/health/liveliness
+        required_env:
+          - ORATRICE_LITELLM_MASTER_KEY
+        environment:
+          LITELLM_LOG: WARNING
+        generate_if_missing: true
+      - id: core_api
+        runtime: runtime.core_api
+        timeout: 60
+        executable_override: ../../.venv/Scripts/python.exe
+        health_endpoint: http://127.0.0.1:8000/health
+    optional_targets:
+      - id: qwen_vl
+        runtime: runtime.qwen_vl
+        timeout: 180
+        health_endpoint: http://127.0.0.1:8082/health
+        before: litellm_gateway
+  router:
+    type: gemma
+    model: model.gemma_router
+    routing_model: model.gemma_router
+    provider: provider.gemma_router
+    routing_provider: provider.gemma_router
+    endpoint: http://127.0.0.1:8090/v1
+    allowed_models:
+      - gpt_oss
+      - qwen_vl
+    allowed_providers:
+      - provider.litellm_gateway
+    # The default Gemma allow-list remains local-first.  A caller that
+    # explicitly opts into cloud inference may merge these candidates into
+    # the router allow-lists after setting DEEPSEEK_API_KEY.
+    cloud_candidates:
+      - model: deepseek_reasoner
+        provider: provider.litellm_cloud
+        policy: policy.cloud_opt_in
+    # M3 declarative candidate strategy.  Model values are the aliases sent
+    # through the configured gateway; provider values are canonical provider
+    # IDs from this profile.  The composition root reads this catalogue and
+    # never embeds these identities in Python.
+    strategy:
+      cloud_opt_in_key: allow_cloud
+      candidates:
+        - id: gpt_oss
+          model: gpt_oss
+          provider: provider.litellm_gateway
+          task_types:
+            - general
+            - chat
+            - coding
+            - reasoning
+          complexities:
+            - low
+            - medium
+            - high
+          capabilities:
+            - text
+            - chat
+            - coding
+            - reasoning
+          priority: -1
+          requires_cloud_opt_in: false
+        - id: qwen_vl
+          model: qwen_vl
+          provider: provider.litellm_gateway
+          task_types:
+            - vision
+            - ocr
+          capabilities:
+            - vision
+            - ocr
+            - text
+          priority: 0
+          requires_cloud_opt_in: false
+        - id: deepseek_reasoner
+          model: deepseek_reasoner
+          provider: provider.litellm_cloud
+          task_types:
+            - reasoning
+            - coding
+          complexities:
+            - high
+          capabilities:
+            - coding
+            - reasoning
+          priority: 10
+          requires_cloud_opt_in: true
+  gateway:
+    provider: provider.litellm_gateway
+    alias: litellm
+    base_url: http://127.0.0.1:4000/v1
+    health_endpoint: http://127.0.0.1:4000/health/liveliness
+    config_path: ../../../../infrastructure/litellm/config.yaml
+    model_aliases:
+      gpt_oss: gpt_oss
+      qwen_vl: qwen_vl
+      deepseek_reasoner: deepseek_reasoner
+
+  services:
+    gemma_router:
+      id: service.gemma_router
+      role: router
+      host: 127.0.0.1
+      port: 8090
+      base_url: http://127.0.0.1:8090/v1
+      health_endpoint: http://127.0.0.1:8090/health
+      provider: provider.gemma_router
+      provider_alias: gemma-router
+      gateway_alias: gemma-router
+      runtime: runtime.gemma_router
+      model: model.gemma_router
+      runtime_args:
+        - --model
+        - ../../models/Gemma-3n-E4B/gemma-3n-E4B-it-Q5_K_M.gguf
+        - --host
+        - 127.0.0.1
+        - --port
+        - "8090"
+
+    gpt_oss:
+      id: service.gpt_oss
+      role: model
+      host: 127.0.0.1
+      port: 8080
+      base_url: http://127.0.0.1:8080/v1
+      health_endpoint: http://127.0.0.1:8080/health
+      provider: provider.gpt_oss
+      provider_alias: gpt-oss
+      gateway_alias: gpt_oss
+      runtime: runtime.gpt_oss
+      model: model.gpt_oss
+      runtime_args:
+        - --model
+        - ../../models/GPT-OSS/openai_gpt-oss-20b-MXFP4.gguf
+        - --host
+        - 127.0.0.1
+        - --port
+        - "8080"
+
+    qwen_vl:
+      id: service.qwen_vl
+      role: multimodal_model
+      host: 127.0.0.1
+      port: 8082
+      base_url: http://127.0.0.1:8082/v1
+      health_endpoint: http://127.0.0.1:8082/health
+      provider: provider.qwen_vl
+      provider_alias: qwen-vl
+      gateway_alias: qwen_vl
+      runtime: runtime.qwen_vl
+      model: model.qwen_vl
+      main_model: ../../../../models/Qwen2.5-VL-3B/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf
+      mmproj: ../../../../models/Qwen2.5-VL-3B/mmproj-Qwen2.5-VL-3B-Instruct-f16.gguf
+      runtime_args:
+        - --model
+        - ../../models/Qwen2.5-VL-3B/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf
+        - --mmproj
+        - ../../models/Qwen2.5-VL-3B/mmproj-Qwen2.5-VL-3B-Instruct-f16.gguf
+        - --host
+        - 127.0.0.1
+        - --port
+        - "8082"
+
+    litellm_gateway:
+      id: service.litellm_gateway
+      role: gateway
+      host: 127.0.0.1
+      port: 4000
+      base_url: http://127.0.0.1:4000/v1
+      health_endpoint: http://127.0.0.1:4000/health/liveliness
+      provider: provider.litellm_gateway
+      provider_alias: litellm
+      gateway_alias: litellm
+      runtime: runtime.litellm_gateway
+      config_path: ../../../../infrastructure/litellm/config.yaml
+      runtime_args:
+        - --config
+        - config.yaml
+        - --host
+        - 127.0.0.1
+        - --port
+        - "4000"
+
+    core_api:
+      id: service.core_api
+      role: core_api
+      host: 127.0.0.1
+      port: 8000
+      base_url: http://127.0.0.1:8000
+      health_endpoint: http://127.0.0.1:8000/health
+      provider: provider.core_api
+      provider_alias: core-api
+      runtime: runtime.core_api
+      runtime_args:
+        - -m
+        - uvicorn
+        - oratrice_api.main:app
+        - --host
+        - 127.0.0.1
+        - --port
+        - "8000"

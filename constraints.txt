@@ -1,0 +1,7 @@
+# M6 verified direct-dependency baseline; this constrains direct dependencies only, not transitive dependencies.
+PyYAML==6.0.3
+requests==2.34.2
+fastapi==0.115.14
+uvicorn==0.29.0
+pytest==9.1.1
+httpx==0.28.1
