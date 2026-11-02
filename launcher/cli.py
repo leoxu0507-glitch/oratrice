@@ -130,7 +130,14 @@ def run(
         output("Oratrice launcher: " + result.status)
         for outcome in result.outcomes:
             failure_type = getattr(outcome, "error_type", None)
-            suffix = f" [{failure_type}]" if failure_type else ""
+            details = [str(failure_type)] if failure_type else []
+            runtime_state = getattr(outcome, "runtime_state", None)
+            if runtime_state:
+                details.append(f"runtime_state={runtime_state}")
+            returncode = getattr(outcome, "returncode", None)
+            if returncode is not None:
+                details.append(f"returncode={returncode}")
+            suffix = f" [{', '.join(details)}]" if details else ""
             output(f"  {outcome.id}: {outcome.status}{suffix}")
         output("  UI: " + result.ui_status)
         if not result.ok:

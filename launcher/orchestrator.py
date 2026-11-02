@@ -11,7 +11,12 @@ from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from core.runtime_manager import RuntimeManager
+from core.runtime_manager import (
+    RuntimeLifecycleError,
+    RuntimeManager,
+    RuntimeState,
+    RuntimeStatus,
+)
 
 from .plan import LaunchPlan, LaunchTarget
 
@@ -29,6 +34,8 @@ class TargetOutcome:
     owned: bool = False
     command: tuple[str, ...] = ()
     error_type: str | None = None
+    runtime_state: str | None = None
+    returncode: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +135,15 @@ class LauncherOrchestrator:
                         )
                     )
                 except Exception as exc:
+                    runtime_state = None
+                    returncode = None
+                    if isinstance(exc, RuntimeLifecycleError) and isinstance(
+                        exc.status, RuntimeStatus
+                    ):
+                        if isinstance(exc.status.state, RuntimeState):
+                            runtime_state = exc.status.state.value
+                        if type(exc.status.returncode) is int:
+                            returncode = exc.status.returncode
                     outcomes.append(
                         TargetOutcome(
                             target.id,
@@ -135,6 +151,8 @@ class LauncherOrchestrator:
                             "SKIPPED" if target.optional else "FAILED",
                             target.optional,
                             error_type=type(exc).__name__,
+                            runtime_state=runtime_state,
+                            returncode=returncode,
                         )
                     )
                     if target.optional:

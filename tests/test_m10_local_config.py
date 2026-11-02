@@ -104,6 +104,7 @@ def test_generated_defaults_load_and_form_a_local_only_launch_plan(tmp_path, mon
     assert gpt_args[gpt_args.index("--gpu-layers") + 1] == "999"
     assert router_args[router_args.index("--gpu-layers") + 1] == "0"
     for args in (gpt_args, router_args):
+        assert args[args.index("--cache-ram") + 1] == "0"
         assert args[args.index("--ctx-size") + 1] == "2048"
         assert args[args.index("--parallel") + 1] == "1"
         assert args[args.index("-t") + 1] == "16"
@@ -139,6 +140,20 @@ def test_generated_defaults_load_and_form_a_local_only_launch_plan(tmp_path, mon
     assert core_target.executable_override == project_root / ".venv" / "Scripts" / "python.exe"
 
 
+def test_live_gpt_and_gemma_prompt_caches_are_disabled():
+    live_path = PROJECT_ROOT / "config" / "profiles" / "live.yaml"
+    live = yaml.safe_load(live_path.read_text(encoding="utf-8"))
+
+    for runtime_id in ("gpt_oss", "gemma_router"):
+        args = live["runtimes"][runtime_id]["args"]
+        assert args[args.index("--cache-ram") + 1] == "0"
+
+    services = live["defaults"]["services"]
+    for service_id in ("gpt_oss", "gemma_router"):
+        args = services[service_id]["runtime_args"]
+        assert args[args.index("--cache-ram") + 1] == "0"
+
+
 def test_cli_quotes_paths_and_refuses_existing_outputs(tmp_path, monkeypatch):
     project_root = tmp_path / "Project with spaces"
     _copy_templates(project_root)
@@ -166,6 +181,8 @@ def test_cli_quotes_paths_and_refuses_existing_outputs(tmp_path, monkeypatch):
             "42",
             "--threads",
             "8",
+            "--prompt-cache-mib",
+            "1536",
         ]
     )
     assert status == 0
@@ -174,6 +191,9 @@ def test_cli_quotes_paths_and_refuses_existing_outputs(tmp_path, monkeypatch):
     assert args[args.index("--ctx-size") + 1] == "4096"
     assert args[args.index("--gpu-layers") + 1] == "42"
     assert args[args.index("-t") + 1] == "8"
+    router_args = raw["runtimes"]["gemma_router"]["args"]
+    for runtime_args in (args, router_args):
+        assert runtime_args[runtime_args.index("--cache-ram") + 1] == "1536"
     assert ConfigurationLoader(profile_path).load().runtimes["runtime.gpt_oss"].working_dir == PROJECT_ROOT.resolve()
 
     profile_bytes = profile_path.read_bytes()
@@ -191,6 +211,64 @@ def test_cli_quotes_paths_and_refuses_existing_outputs(tmp_path, monkeypatch):
         raise AssertionError("existing outputs must not be overwritten")
     assert profile_path.read_bytes() == profile_bytes
     assert gateway_path.read_bytes() == gateway_bytes
+
+
+def test_prompt_cache_budget_rejects_invalid_python_values_without_outputs(tmp_path):
+    project_root = tmp_path / "Prompt cache validation"
+    _copy_templates(project_root)
+    files = _external_files(tmp_path / "Prompt cache model files")
+
+    for index, value in enumerate((-1, True, 1.5)):
+        profile_path = project_root / f"generated-{index}" / "local.yaml"
+        gateway_path = project_root / f"generated-{index}" / "gateway.yaml"
+        try:
+            configure_local(
+                **files,
+                output=profile_path,
+                gateway_output=gateway_path,
+                prompt_cache_mib=value,
+                project_root=project_root,
+            )
+        except ValueError as exc:
+            assert "--prompt-cache-mib" in str(exc)
+        else:
+            raise AssertionError(f"invalid prompt cache budget was accepted: {value!r}")
+        assert not profile_path.exists()
+        assert not gateway_path.exists()
+
+
+def test_cli_rejects_negative_prompt_cache_budget_without_outputs(tmp_path, monkeypatch):
+    project_root = tmp_path / "Prompt cache CLI validation"
+    _copy_templates(project_root)
+    files = _external_files(tmp_path / "Prompt cache CLI model files")
+    monkeypatch.chdir(project_root)
+    profile_path = project_root / "generated" / "local.yaml"
+    gateway_path = project_root / "generated" / "gateway.yaml"
+
+    try:
+        main(
+            [
+                "--llama-server",
+                str(files["llama_server"]),
+                "--gpt-model",
+                str(files["gpt_model"]),
+                "--router-model",
+                str(files["router_model"]),
+                "--output",
+                str(profile_path),
+                "--gateway-output",
+                str(gateway_path),
+                "--prompt-cache-mib",
+                "-1",
+            ]
+        )
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:
+        raise AssertionError("negative prompt cache budget was accepted by the CLI")
+
+    assert not profile_path.exists()
+    assert not gateway_path.exists()
 
 
 def test_external_python_and_gateway_overrides_remain_absolute(tmp_path):

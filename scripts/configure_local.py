@@ -130,6 +130,7 @@ def configure_local(
     ctx_size: int = 2048,
     gpt_gpu_layers: int = 999,
     threads: int = 16,
+    prompt_cache_mib: int = 0,
     project_root: str | Path = PROJECT_ROOT,
 ) -> tuple[Path, Path]:
     """Write a generated local profile and gateway configuration.
@@ -153,6 +154,8 @@ def configure_local(
         raise ValueError("--gpt-gpu-layers must be a non-negative integer")
     if isinstance(threads, bool) or not isinstance(threads, int) or threads <= 0:
         raise ValueError("--threads must be a positive integer")
+    if isinstance(prompt_cache_mib, bool) or not isinstance(prompt_cache_mib, int) or prompt_cache_mib < 0:
+        raise ValueError("--prompt-cache-mib must be a non-negative integer")
 
     profile_path = _output_path(output, root)
     gateway_path = _output_path(gateway_output, root)
@@ -186,6 +189,7 @@ def configure_local(
         "@CTX_SIZE@": str(ctx_size),
         "@GPT_GPU_LAYERS@": str(gpt_gpu_layers),
         "@THREADS@": str(threads),
+        "@PROMPT_CACHE_MIB@": str(prompt_cache_mib),
     }
     profile_output = _replace_placeholders(profile_template, replacements)
 
@@ -228,6 +232,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--ctx-size", type=_positive_int, default=2048, help="Context size for both llama-server processes (default: 2048)")
     parser.add_argument("--gpt-gpu-layers", type=_non_negative_int, default=999, help="GPT-OSS GPU layers (default: 999)")
     parser.add_argument("--threads", type=_positive_int, default=16, help="Threads for both llama-server processes (default: 16)")
+    parser.add_argument(
+        "--prompt-cache-mib",
+        type=_non_negative_int,
+        default=0,
+        help="Prompt cache RAM limit for both llama-server processes in MiB (default: 0, disabled)",
+    )
     return parser
 
 
@@ -246,6 +256,7 @@ def main(argv: list[str] | None = None) -> int:
             ctx_size=args.ctx_size,
             gpt_gpu_layers=args.gpt_gpu_layers,
             threads=args.threads,
+            prompt_cache_mib=args.prompt_cache_mib,
         )
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
