@@ -1,0 +1,18 @@
+# Local-only LiteLLM Proxy configuration. The API key is resolved from the
+# process environment at runtime; no credential is stored in this file.
+model_list:
+  - model_name: gpt_oss
+    litellm_params:
+      model: openai/gpt-oss
+      api_base: http://127.0.0.1:8080/v1
+      api_key: os.environ/ORATRICE_LITELLM_MASTER_KEY
+
+general_settings:
+  master_key: os.environ/ORATRICE_LITELLM_MASTER_KEY
+
+litellm_settings:
+  set_verbose: false
+  turn_off_message_logging: true
+  log_raw_request_response: false
+  redact_messages_in_exceptions: true
+  redact_user_api_key_info: true

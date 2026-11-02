@@ -139,7 +139,7 @@ def test_m5_config_launcher_candidates_and_secret_boundary(monkeypatch):
     core_api = plan.targets[-1]
     assert core_api.runtime_id == "runtime.core_api"
     assert core_api.timeout == 60
-    assert core_api.health_endpoint == "http://127.0.0.1:8000/health"
+    assert core_api.health_endpoint == "http://127.0.0.1:8000/live"
 
     strategy = configuration.defaults["router"]["strategy"]
     candidates = strategy["candidates"]

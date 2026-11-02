@@ -1,0 +1,16 @@
+# Optional cloud supplement. Merge explicitly into a copied gateway config.
+# This file is not used by the generated local-only deployment.
+model_list:
+  - model_name: deepseek_reasoner
+    litellm_params:
+      model: deepseek/deepseek-reasoner
+      api_base: https://api.deepseek.com/v1
+      api_key: os.environ/DEEPSEEK_API_KEY
+general_settings:
+  master_key: os.environ/ORATRICE_LITELLM_MASTER_KEY
+litellm_settings:
+  set_verbose: false
+  turn_off_message_logging: true
+  log_raw_request_response: false
+  redact_messages_in_exceptions: true
+  redact_user_api_key_info: true

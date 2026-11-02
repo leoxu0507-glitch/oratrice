@@ -1,5 +1,26 @@
 # Oratrice launcher (M8)
 
+## M9 lifecycle hardening
+
+The M9 bootstrap creates Python suspended, assigns it to the kill-on-close
+Job Object, and only then resumes it. Safety-job creation or assignment failure
+aborts startup instead of continuing without supervision. Redirected failures
+return an error without waiting for console input. Build a review candidate
+with `scripts/build_launcher.ps1`; the default output is under ignored `work/`.
+
+Python shutdown now preserves ownership when termination cannot be confirmed,
+and `RuntimeStopError` prevents false `STOPPED` status. Bulk cleanup attempts
+runtimes in reverse order. Interrupted startup rolls back owned resources;
+cleanup failure restores environment state and produces CLI exit code 2.
+
+Use `Start-Oratrice.exe` for the Windows process-tree safety boundary. Running
+the Python CLI directly does not establish that native Job Object. Closing
+the browser page leaves the launcher running; stop the launcher from its
+console when the stack is no longer needed. Normal interactive console and
+real-model restart acceptance are still pending, as recorded in the
+[M9 ledger](../validation/M9-RELEASE-SUMMARY.md). The M8 findings below remain
+historical and are not overwritten by lightweight M9 evidence.
+
 `Start-Oratrice.exe` is a thin Windows bootstrap. It selects an existing Python
 runtime and executes `scripts/launch_oratrice.py`; model, provider, port, health,
 and ordering decisions remain in `config/profiles/live.yaml`.

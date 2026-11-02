@@ -9,10 +9,20 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Any, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 from fastapi.encoders import jsonable_encoder
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    StrictStr,
+    field_validator,
+    model_validator,
+)
 
 
 Message: TypeAlias = str | list[Any]
@@ -35,11 +45,59 @@ class RouteRequest(_StrictDTO):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ConversationMessage(_StrictDTO):
+    """One provider-neutral user or assistant message in a chat transcript."""
+
+    role: Literal["user", "assistant"]
+    content: StrictStr
+
+    @field_validator("content")
+    @classmethod
+    def _validate_content(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("content must not be blank")
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise ValueError("content must be valid UTF-8 text") from exc
+        return value
+
+
 class ChatRequest(RouteRequest):
+    history: list[ConversationMessage] | None = Field(default=None, strict=True)
     temperature: StrictFloat | None = None
     max_tokens: StrictInt | None = None
     top_p: StrictFloat | None = None
     stop: StrictStr | list[StrictStr] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _require_text_message_for_history(cls, value: Any) -> Any:
+        if not isinstance(value, Mapping):
+            return value
+        message = value.get("message")
+        if isinstance(message, str):
+            try:
+                message.encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise ValueError("message must be valid UTF-8 text") from exc
+        if value.get("history") is None:
+            return value
+        if not isinstance(message, str) or not message.strip():
+            raise ValueError("message must be nonblank text when history is supplied")
+        return value
+
+    @model_validator(mode="after")
+    def _require_complete_alternating_history(self) -> ChatRequest:
+        if self.history is None:
+            return self
+        if len(self.history) % 2:
+            raise ValueError("history must contain complete user-assistant pairs")
+        for index, item in enumerate(self.history):
+            expected = "user" if index % 2 == 0 else "assistant"
+            if item.role != expected:
+                raise ValueError("history must start with user and alternate roles")
+        return self
 
 
 # Descriptive aliases for callers that prefer an explicit DTO suffix.
@@ -175,6 +233,7 @@ serialize_health = serialise_health
 __all__ = [
     "ChatRequest",
     "ChatRequestDTO",
+    "ConversationMessage",
     "RouteRequest",
     "RouteRequestDTO",
     "serialise_chat_response",

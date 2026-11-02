@@ -31,6 +31,7 @@ from core.errors import (
 from core.observability import HealthReport, get_logger, new_request_id, redact, request_context
 from providers.base import (
     ChatChunk,
+    ChatMessage,
     ChatRequest,
     ChatResponse,
     ProviderError,
@@ -302,12 +303,33 @@ class CoreFacade:
             # Validation diagnostics intentionally do not include prompt or
             # image source values.
             raise CoreValidationError("invalid message content") from None
+        history = kwargs.get("history")
+        if history is not None:
+            if not isinstance(message, str) or not isinstance(history, (list, tuple)) or len(history) % 2:
+                raise CoreValidationError("history requires complete text conversation turns")
+            normalised = []
+            for index, item in enumerate(history):
+                if isinstance(item, ChatMessage):
+                    role, content = item.role, item.content
+                elif isinstance(item, Mapping):
+                    role, content = item.get("role"), item.get("content")
+                else:
+                    raise CoreValidationError("invalid conversation history")
+                expected_role = "user" if index % 2 == 0 else "assistant"
+                if role != expected_role or not isinstance(content, str) or not content.strip():
+                    raise CoreValidationError("invalid conversation history")
+                normalised.append(ChatMessage(role=role, content=content))
+            kwargs["history"] = tuple(normalised)
         return requested_model, message, kwargs
 
     def _router_request(self, model_id: str | None, message: Any, kwargs: Mapping[str, Any]) -> RouterRequest:
         metadata = kwargs.get("metadata")
         metadata = dict(metadata or {}) if isinstance(metadata, Mapping) else {}
         route_text = content_to_text(message)
+        if kwargs.get("history"):
+            transcript = [f"{item.role}: {item.content}" for item in kwargs["history"]]
+            transcript.append(f"user: {route_text}")
+            route_text = "\n".join(transcript)
         return RouterRequest(
             message=route_text,
             model=model_id,
@@ -744,12 +766,18 @@ class CoreFacade:
             "model",
             "model_id",
             "stream",
+            "history",
         }
         values = {key: value for key, value in kwargs.items() if key not in reserved}
         metadata = kwargs.get("metadata")
+        history = kwargs.get("history")
+        content = (
+            {"messages": (*history, ChatMessage(role="user", content=message))}
+            if history is not None else {"message": message}
+        )
         return ChatRequest(
             model=model,
-            message=message,
+            **content,
             stream=stream,
             metadata=metadata if isinstance(metadata, Mapping) else None,
             **values,

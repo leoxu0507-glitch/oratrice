@@ -92,6 +92,7 @@ class LauncherOrchestrator:
             return LaunchResult("PASS", outcomes, "NOT_REQUESTED", dry_run=True)
 
         self._active = True
+        cleanup_attempted = False
         outcomes: list[TargetOutcome] = []
         try:
             for target in targets:
@@ -138,23 +139,44 @@ class LauncherOrchestrator:
                     )
                     if target.optional:
                         continue
-                    self.runtime_manager.stop_all()
-                    self._restore_generated_environment()
-                    self._active = False
+                    cleanup_attempted = True
+                    self._cleanup_after_start_failure()
                     return LaunchResult("FAIL", tuple(outcomes), "NOT_REQUESTED")
             return LaunchResult("PASS", tuple(outcomes), self._open_ui(open_ui))
-        except Exception:
-            self.runtime_manager.stop_all()
-            self._restore_generated_environment()
-            self._active = False
+        except BaseException:
+            if not cleanup_attempted:
+                self._cleanup_after_start_failure()
             raise
 
     def stop(self) -> Any:
+        result: Any = None
         try:
-            return self.runtime_manager.stop_all()
-        finally:
+            result = self.runtime_manager.stop_all()
+        except BaseException:
+            # The runtime manager retains any process it could not reap. Keep
+            # this orchestrator active so a caller can retry stop(), while
+            # still restoring generated parent-process environment state.
+            self._restore_generated_environment()
+            self._active = True
+            raise
+        else:
             self._restore_generated_environment()
             self._active = False
+            return result
+
+    def _cleanup_after_start_failure(self) -> Any:
+        """Stop owned runtimes and restore launcher state after start failure."""
+
+        try:
+            result = self.runtime_manager.stop_all()
+        except BaseException:
+            self._restore_generated_environment()
+            self._active = True
+            raise
+        else:
+            self._restore_generated_environment()
+            self._active = False
+            return result
 
     close = stop
 

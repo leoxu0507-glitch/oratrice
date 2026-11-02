@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from core.application import build_application
-from core.configuration import ConfigurationLoader
+from core.configuration import ConfigurationLoader, default_service_profile
 
 from .orchestrator import LauncherOrchestrator
 
@@ -30,7 +30,7 @@ def _parser() -> argparse.ArgumentParser:
         choices=("doctor",),
         help="run an offline self-check instead of starting the runtime stack",
     )
-    parser.add_argument("--profile", default=str(DEFAULT_PROFILE))
+    parser.add_argument("--profile", default=str(default_service_profile(PROJECT_ROOT)))
     parser.add_argument("--dry-run", action="store_true", help="show the plan without side effects")
     parser.add_argument("--with-qwen", action="store_true", help="include the optional Qwen-VL runtime")
     parser.add_argument("--no-browser", action="store_true", help="do not open an available external UI")
@@ -44,6 +44,10 @@ def _parser() -> argparse.ArgumentParser:
         "--probe",
         action="store_true",
         help="doctor: record a requested probe without performing network/port checks",
+    )
+    parser.add_argument(
+        "--strict-paths", action="store_true",
+        help="doctor: fail when required launch assets are missing",
     )
     return parser
 
@@ -88,6 +92,7 @@ def run(
             probe=args.probe,
             json_output=args.doctor_json,
             output=output,
+            strict_paths=args.strict_paths,
         )
     previous = env.get(GATEWAY_KEY_ENV)
     process_previous = os.environ.get(GATEWAY_KEY_ENV)
@@ -124,7 +129,9 @@ def run(
         )
         output("Oratrice launcher: " + result.status)
         for outcome in result.outcomes:
-            output(f"  {outcome.id}: {outcome.status}")
+            failure_type = getattr(outcome, "error_type", None)
+            suffix = f" [{failure_type}]" if failure_type else ""
+            output(f"  {outcome.id}: {outcome.status}{suffix}")
         output("  UI: " + result.ui_status)
         if not result.ok:
             return 1
@@ -149,16 +156,18 @@ def run(
         output("Oratrice launcher failed: " + type(exc).__name__)
         return 2
     finally:
+        cleanup_error: BaseException | None = None
         if application is not None:
             try:
                 application.close()
-            except Exception:
-                pass
+            except BaseException as exc:
+                cleanup_error = exc
         if orchestrator is not None and not args.dry_run:
             try:
                 orchestrator.stop()
-            except Exception:
-                pass
+            except BaseException as exc:
+                if cleanup_error is None:
+                    cleanup_error = exc
         if generated:
             env.pop(GATEWAY_KEY_ENV, None)
         elif previous is not None:
@@ -175,6 +184,9 @@ def run(
             os.environ[CONFIG_PATH_ENV] = process_previous_config
         else:
             os.environ.pop(CONFIG_PATH_ENV, None)
+        if cleanup_error is not None:
+            output("Oratrice launcher cleanup failed: " + type(cleanup_error).__name__)
+            return 2
 
 
 def main(argv: Sequence[str] | None = None) -> int:

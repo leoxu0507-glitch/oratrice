@@ -8,7 +8,7 @@ from launcher.plan import LaunchPlan
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PROFILE = PROJECT_ROOT / "config" / "profiles" / "live.yaml"
-LITELLM_CONFIG = Path(r"D:\AI\infrastructure\litellm\config.yaml")
+LITELLM_CONFIG = PROJECT_ROOT / "config" / "gateway.example.yaml"
 
 
 def test_litellm_config_disables_payload_logging():

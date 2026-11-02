@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from .app import create_api
+from core.configuration import default_service_profile
 from providers.external_readiness import ExternalEndpointReadinessProvider
 
 
@@ -14,9 +15,7 @@ from providers.external_readiness import ExternalEndpointReadinessProvider
 # services from the live profile, so the API must compose the same graph.  An
 # explicit environment override keeps standalone/development deployments
 # configurable without embedding provider/model identities in Python.
-DEFAULT_CONFIG_PATH = (
-    Path(__file__).resolve().parents[1] / "config" / "profiles" / "live.yaml"
-)
+DEFAULT_CONFIG_PATH = default_service_profile(Path(__file__).resolve().parents[1])
 CONFIG_PATH = os.environ.get("ORATRICE_CONFIG", str(DEFAULT_CONFIG_PATH))
 READINESS_PROVIDER = ExternalEndpointReadinessProvider(CONFIG_PATH)
 app = create_api(config_path=CONFIG_PATH, readiness_provider=READINESS_PROVIDER)

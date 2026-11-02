@@ -11,6 +11,7 @@ htmlcov/
 
 # Virtual environments and packaging output
 .venv/
+.gateway-venv/
 venv/
 env/
 build/
@@ -22,6 +23,8 @@ dist/
 .env.*
 *.env
 !config/secrets.example.env
+config/profiles/local.yaml
+config/gateway.local.yaml
 *.pem
 *.key
 *.pfx

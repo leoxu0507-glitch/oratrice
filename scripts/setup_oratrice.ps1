@@ -4,14 +4,18 @@ param(
     # precedence over ORATRICE_PYTHON and the py launcher.
     [string]$Python,
 
-    # The default is <project root>\.venv.  Relative values are interpreted
-    # relative to the project root; absolute values are accepted only when
-    # explicitly supplied by the caller.
+    # The default is <project root>\.venv, or .gateway-venv with -Gateway.
+    # Relative values are interpreted relative to the project root; absolute
+    # values are accepted only when explicitly supplied by the caller.
     [string]$VenvPath,
 
     # Inspect the selected interpreter, venv, and requirements without making
     # a venv, invoking pip, or changing machine/user configuration.
-    [switch]$CheckOnly
+    [switch]$CheckOnly,
+
+    # Opt in to the isolated LiteLLM Gateway environment.  Core remains the
+    # default and continues to use requirements.txt plus constraints.txt.
+    [switch]$Gateway
 )
 
 Set-StrictMode -Version Latest
@@ -20,6 +24,14 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path -Path $PSScriptRoot -ChildPath ".."))
 $RequirementsPath = Join-Path -Path $ProjectRoot -ChildPath "requirements.txt"
 $ConstraintsPath = Join-Path -Path $ProjectRoot -ChildPath "constraints.txt"
+$DefaultVenvName = ".venv"
+$EnvironmentLabel = "Core"
+if ($Gateway) {
+    $RequirementsPath = Join-Path -Path $ProjectRoot -ChildPath "requirements-gateway.txt"
+    $ConstraintsPath = $null
+    $DefaultVenvName = ".gateway-venv"
+    $EnvironmentLabel = "Gateway"
+}
 
 function Format-NativeFailure {
     param([object[]]$Output)
@@ -139,7 +151,7 @@ function Resolve-VenvPath {
     param([string]$ExplicitVenvPath)
 
     if ([string]::IsNullOrWhiteSpace($ExplicitVenvPath)) {
-        return [System.IO.Path]::GetFullPath((Join-Path -Path $ProjectRoot -ChildPath ".venv"))
+        return [System.IO.Path]::GetFullPath((Join-Path -Path $ProjectRoot -ChildPath $DefaultVenvName))
     }
     $candidate = $ExplicitVenvPath.Trim()
     if ([System.IO.Path]::IsPathRooted($candidate)) {
@@ -206,13 +218,14 @@ function Get-RequirementEntries {
         }
         $match = [regex]::Match(
             $line,
-            '^(?<name>[A-Za-z0-9_.-]+)\s*(?<spec>(?:[<>=!~]=?\s*[^,;\s]+(?:\s*,\s*[<>=!~]=?\s*[^,;\s]+)*)?)\s*(?:;.*)?$'
+            '^(?<name>[A-Za-z0-9_.-]+)\s*(?<extras>\[\s*[A-Za-z0-9_.-]+(?:\s*,\s*[A-Za-z0-9_.-]+)*\s*\])?\s*(?<spec>(?:[<>=!~]=?\s*[^,;\s]+(?:\s*,\s*[<>=!~]=?\s*[^,;\s]+)*)?)\s*(?:;.*)?$'
         )
         if (-not $match.Success) {
             throw "Could not parse requirements entry '$line'."
         }
         $entries += [pscustomobject]@{
             Name = $match.Groups["name"].Value
+            Extras = $match.Groups["extras"].Value
             Spec = $match.Groups["spec"].Value.Trim()
         }
     }
@@ -264,17 +277,28 @@ function Test-VersionSpec {
         if (-not $match.Success) {
             throw "Unsupported version constraint '$condition'."
         }
-        $expected = Convert-VersionParts -Value $match.Groups["version"].Value
-        $comparison = Compare-VersionParts -Left $actual -Right $expected
         $operator = $match.Groups["operator"].Value
-        $satisfied = switch ($operator) {
-            ">=" { $comparison -ge 0; break }
-            "<=" { $comparison -le 0; break }
-            "==" { $comparison -eq 0; break }
-            "!=" { $comparison -ne 0; break }
-            ">" { $comparison -gt 0; break }
-            "<" { $comparison -lt 0; break }
-            default { $false }
+        $expectedText = $match.Groups["version"].Value
+        if ($operator -eq "==") {
+            # Exact pins (including the Gateway pin) must match the reported
+            # version string, not just its first three numeric components.
+            $satisfied = [string]::Equals(
+                $Version.Trim(),
+                $expectedText,
+                [System.StringComparison]::Ordinal
+            )
+        }
+        else {
+            $expected = Convert-VersionParts -Value $expectedText
+            $comparison = Compare-VersionParts -Left $actual -Right $expected
+            $satisfied = switch ($operator) {
+                ">=" { $comparison -ge 0; break }
+                "<=" { $comparison -le 0; break }
+                "!=" { $comparison -ne 0; break }
+                ">" { $comparison -gt 0; break }
+                "<" { $comparison -lt 0; break }
+                default { $false }
+            }
         }
         if (-not $satisfied) {
             return $false
@@ -312,8 +336,15 @@ function Test-RequiredPackages {
         $name = [string]$requirement.Name
         $spec = [string]$requirement.Spec
         $module = Get-ImportName -DistributionName $name
-        $code = "import importlib, importlib.metadata as metadata; importlib.import_module('$module'); print(metadata.version('$name'))"
-        $output = @(& $Interpreter -c $code 2>&1)
+        if ($name -ieq "litellm") {
+            # LiteLLM otherwise refreshes its model-cost map over the network
+            # during import.  Keep the override local to this child process.
+            $code = "import os, importlib, importlib.metadata as metadata; os.environ['LITELLM_LOCAL_MODEL_COST_MAP'] = 'True'; importlib.import_module('$module'); print(metadata.version('$name'))"
+        }
+        else {
+            $code = "import importlib, importlib.metadata as metadata; importlib.import_module('$module'); print(metadata.version('$name'))"
+        }
+        $output = @(& $Interpreter -B -c $code 2>&1)
         if ($LASTEXITCODE -ne 0) {
             $failures += "$name is missing or cannot be imported"
             continue
@@ -344,9 +375,10 @@ try {
     $basePython = Resolve-PythonPath -ExplicitPython $Python
     $baseVersion = Get-PythonVersion -Interpreter $basePython.Path -Description "Selected interpreter"
     $resolvedVenvPath = Resolve-VenvPath -ExplicitVenvPath $VenvPath
-    $requirements = Get-RequirementEntries -Path $RequirementsPath
+    $requirements = @(Get-RequirementEntries -Path $RequirementsPath)
 
     Write-Host ("Selected Python: {0} ({1}, Python {2})" -f $basePython.Path, $basePython.Source, $baseVersion)
+    Write-Host ("Environment: {0}" -f $EnvironmentLabel)
     Write-Host ("Project root: {0}" -f $ProjectRoot)
     Write-Host ("Virtual environment: {0}" -f $resolvedVenvPath)
     Write-Host ("Requirements: {0} package entries from {1}" -f $requirements.Count, $RequirementsPath)
@@ -369,7 +401,7 @@ try {
         exit 0
     }
 
-    if (-not $CheckOnly -and -not (Test-Path -LiteralPath $ConstraintsPath -PathType Leaf)) {
+    if (-not $Gateway -and -not (Test-Path -LiteralPath $ConstraintsPath -PathType Leaf)) {
         throw "Constraints file was not found: '$ConstraintsPath'. Restore it before installing."
     }
 
@@ -380,13 +412,25 @@ try {
     $venvVersion = Get-PythonVersion -Interpreter $venvPython -Description "Virtual-environment interpreter"
     Write-Host ("Virtual-environment Python: {0} (Python {1})" -f $venvPython, $venvVersion)
 
-    # The selected venv interpreter owns dependency installation.  The
-    # operator-visible command is: <venv>\Scripts\python.exe -m pip install -r requirements.txt -c constraints.txt.
+    # The selected venv interpreter owns dependency installation.  Core uses
+    # requirements.txt with constraints.txt; Gateway uses its independent
+    # requirements-gateway.txt without Core constraints.
     # No global pip, PATH mutation, execution-policy change, or secret generation occurs.
     Write-Host "Installing requirements with the selected virtual-environment interpreter."
-    $pipOutput = @(& $venvPython -m pip install -r $RequirementsPath -c $ConstraintsPath 2>&1)
+    if ($Gateway) {
+        $pipOutput = @(& $venvPython -m pip install -r $RequirementsPath 2>&1)
+    }
+    else {
+        # Operator-visible Core command: <venv>\Scripts\python.exe -m pip install -r requirements.txt -c constraints.txt.
+        $pipOutput = @(& $venvPython -m pip install -r $RequirementsPath -c $ConstraintsPath 2>&1)
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "Dependency installation failed: $(Format-NativeFailure -Output $pipOutput)"
+    }
+    Write-Host "Checking installed dependency consistency with pip check."
+    $pipCheckOutput = @(& $venvPython -m pip check 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Installed dependencies are inconsistent: $(Format-NativeFailure -Output $pipCheckOutput)"
     }
     Write-Host "Dependency installation completed. Checking required imports and versions."
     Test-RequiredPackages -Interpreter $venvPython -Requirements $requirements

@@ -52,7 +52,38 @@ providers.  Routing is deterministic and cloud fallback is opt-in.
 > marked **DEGRADED** while launcher process-reaping evidence and hardware
 > headroom are incomplete. See [Project overview](docs/PROJECT-OVERVIEW.md).
 
-## Current status (M1-M8)
+## v0.2 candidate (acceptance blocked)
+
+The generated default profile selects the local GPT-OSS text chain and Gemma
+router. Cloud inference is not enabled implicitly; it requires explicit policy
+and credentials. Qwen-VL remains optional and deferred.
+
+- **M9 lifecycle:** shutdown failures retain process ownership, interrupted
+  startup rolls back, Windows supervision covers child processes, and chat and
+  route share an admission slot per API instance. Offline integration and
+  surrogate-process checks passed; real-model restart and normal user-console
+  acceptance remain pending. See the
+  [M9 ledger](docs/validation/M9-RELEASE-SUMMARY.md).
+- **M10 portable installation:** a clean Windows/Python 3.13.5 checkout passed
+  Core and Gateway installation and CheckOnly, strict Doctor, dry-run, and 180
+  offline tests. These are historical M10 results; the v0.2 candidate CI and
+  installation gates still need release-owner results. See [Windows environment
+  setup](docs/architecture/ENVIRONMENT.md) and the
+  [M10 ledger](docs/validation/M10-RELEASE-SUMMARY.md).
+- **M11 recent conversation:** the Web UI sends successful recent turns in
+  page memory, with at most 12 prior messages and a 1536-unit budget (UTF-8
+  content bytes plus 32 framing units per message); replies are capped at 256
+  tokens. Refresh and New conversation reset context. There is no persistence
+  or streaming. The recorded 211-test Python suite, 11 JavaScript behavior
+  checks, and Edge API acceptance used an injected provider; real-model
+  acceptance remains pending. See the
+  [M11 ledger](docs/validation/M11-RELEASE-SUMMARY.md) and
+  [chat contract](docs/architecture/API.md).
+
+Real-model chat, Ctrl+C cleanup, and clean installation passed. The required
+restart failed, and process private memory rose during the 30-minute run;
+window-close acceptance remains deferred. Stable v0.2 is blocked. See the
+[v0.2 candidate notes](docs/releases/v0.2.0.md).
 
 - M1: validated YAML configuration, resource registry, local llama.cpp and
   LiteLLM adapters, and the local-first model profile.
@@ -84,46 +115,60 @@ providers.  Routing is deterministic and cloud fallback is opt-in.
   **DEGRADED** because Codex ConPTY Ctrl+C closed listeners but did not reap
   launcher-owned processes. Two bounded handler variants also failed their
   lightweight ignore-SIGINT harness and were reverted as unverified; only the
-  original Job Object source is shipped. Hardware headroom is small. See the
+  original Job Object source was shipped in the M8 snapshot. Hardware headroom is small. See the
   [M8 release summary](docs/validation/M8-RELEASE-SUMMARY.md).
 
-See [the M1-M8 project overview](docs/PROJECT-OVERVIEW.md) for the architecture,
-validation ledger, deferred provider paths, and maintenance guidance.
+See the [project overview](docs/PROJECT-OVERVIEW.md) for the full milestone
+history, architecture, validation ledger, deferred provider paths, and
+maintenance guidance.
 
 The default Oratrice UI is the bundled same-origin page at
 `http://127.0.0.1:8000/ui/`.  OpenWebUI remains an optional external UI for a
 custom profile; Oratrice does not install, configure, or own it.
 
-## Install the selected Python environment
+## Install and configure on Windows
 
-The Windows bootstrap discovers Python in this exact order: absolute
-`ORATRICE_PYTHON`, the project `.venv`, the project-relative infrastructure
-LiteLLM venv, then `python.exe` in `PATH`.  The selected interpreter must have
-the Oratrice dependencies installed.  Prefer the repository bootstrap:
-
-```powershell
-cd D:\AI\projects\Oratrice
-.\scripts\setup_oratrice.ps1
-$env:ORATRICE_PYTHON = (Resolve-Path .\.venv\Scripts\python.exe).Path
-```
-
-For a manual setup, the equivalent install is owned by the selected project
-venv and includes the constraints file.  On the validated M7 host the absolute
-interpreter is used because `py -0p` does not discover it:
+Use Python 3.13 for the validated dependency baseline. From your checkout root,
+run the following commands, replacing the Python and model paths with your
+actual files. Python, llama.cpp (including its runtime DLLs), and compatible
+GPT-OSS/Gemma GGUF weights must be supplied separately.
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe" -m venv .venv
-& .\.venv\Scripts\python.exe -m pip install -r requirements.txt -c constraints.txt
+.\scripts\setup_oratrice.ps1 -Python 'C:\Python313\python.exe'
+.\scripts\setup_oratrice.ps1 -Python 'C:\Python313\python.exe' -Gateway
+& .\.venv\Scripts\python.exe .\scripts\configure_local.py `
+  --llama-server 'C:\llama.cpp\llama-server.exe' `
+  --gpt-model 'C:\Models\openai_gpt-oss-20b-MXFP4.gguf' `
+  --router-model 'C:\Models\gemma-3n-E4B-it-Q5_K_M.gguf'
+.\Start-Oratrice.exe doctor --strict-paths
+.\Start-Oratrice.exe --dry-run --no-browser
 ```
 
-`requirements.txt` declares PyYAML, requests, FastAPI, uvicorn, pytest, and
-httpx.  M7 verified the project `.venv`, pinned direct dependencies and
-`pip check`; LiteLLM 1.74.3 lives separately in
-`D:\AI\infrastructure\litellm\.venv-m7-03`.
+Setup creates separate `.venv` (Core) and `.gateway-venv` (LiteLLM 1.74.3)
+environments. Only these project environments are modified. The generator
+creates ignored `config/profiles/local.yaml` and `config/gateway.local.yaml`,
+refusing to overwrite existing files. Core/Gateway paths remain relative to
+the project; external model paths remain absolute. No credential is saved.
+The launcher generates an ephemeral gateway key if none is supplied.
 
-The supplied `config/profiles/live.yaml` assumes the local `D:\AI` layout for
-the llama.cpp executable, model files, and LiteLLM installation.  Use a copied
-profile with corrected absolute/relative paths when deploying elsewhere.
+The launcher, standalone API, and doctor prefer `local.yaml` when it exists;
+`--profile` (launcher/doctor) and `ORATRICE_CONFIG` (standalone API) retain
+explicit override control. Otherwise the legacy `live.yaml` remains the
+fallback for the maintainer's existing installation.
+
+The generated profile contains only the local text chain. Its context size
+(2048), single server slot, CPU-first Gemma, GPU layers, and thread settings
+are explicit configuration, not a hardware stability guarantee. Adjust them
+with `--ctx-size`, `--gpt-gpu-layers`, and `--threads` when generating a new
+profile at a different `--output`/`--gateway-output` location. Consult the
+validation ledger before loading large models on a memory-constrained host.
+
+Inspect an existing installation without invoking pip:
+
+```powershell
+.\scripts\setup_oratrice.ps1 -Python 'C:\Python313\python.exe' -CheckOnly
+.\scripts\setup_oratrice.ps1 -Python 'C:\Python313\python.exe' -Gateway -CheckOnly
+```
 
 ## One-click startup
 
@@ -133,13 +178,15 @@ Run from the project directory:
 .\Start-Oratrice.exe --dry-run --no-browser  # plan only; starts nothing
 .\Start-Oratrice.exe --no-browser           # start the local stack
 .\Start-Oratrice.exe                        # start and open the bundled /ui/
-.\Start-Oratrice.exe --with-qwen            # explicitly add optional Qwen-VL
+.\Start-Oratrice.exe --profile config/profiles/live.yaml --with-qwen # legacy optional vision profile
 ```
 
 The live required order is GPT-OSS (`8080`), Gemma Router (`8090`), LiteLLM
 (`4000`), then Core API (`8000`).  After `/live` responds, the default launcher
 probes and opens the bundled UI at `http://127.0.0.1:8000/ui/`.  Healthy
 endpoints are reused; only launcher-owned processes are stopped on exit.
+Press Ctrl+C in the launcher console, or close that console, to stop its owned
+services. Closing the browser tab alone leaves the launcher and models running.
 `--profile <path>` loads one resolved profile for both the launcher and the API
 subprocess through the temporary `ORATRICE_CONFIG` environment value, which is
 restored on exit.  A copied profile may point `ui_url` and `ui_health_url` at an
@@ -160,7 +207,7 @@ GET  http://127.0.0.1:8000/ui/
 
 The bundled UI is a deliberately thin same-origin client.  It calls `/live`
 and `/ready` for status and `/chat` for normal conversation; it does not call
-`/route` for a normal chat, persist conversation state, or contain model,
+`/route` for a normal chat, persist conversation state across reloads, or contain model,
 provider, memory, tool, agent, voice, vision, cloud, or streaming logic.  The
 desktop pet can consume status/notification information later without
 duplicating the Core contract.
@@ -224,7 +271,12 @@ load model weights, or contact a cloud endpoint:
 
 ```powershell
 & $env:ORATRICE_PYTHON -m pytest -q
+node --test tests/web_chat.test.cjs
 ```
+
+The separate M11 JavaScript gate uses Node's built-in runner with inert
+browser/HTTP fakes; no npm packages or frontend build are needed. The running
+Web UI itself requires only a browser. See [Testing](docs/architecture/TESTING.md).
 
 M7's historical full-suite path stopped at the three-attempt boundary with
 `139 passed / 2 failed / 0 errors`; both remaining failures were BOM markers

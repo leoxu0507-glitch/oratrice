@@ -213,6 +213,10 @@ class RuntimeTimeoutError(RuntimeLifecycleError, TimeoutError):
     """Raised when readiness is not observed before the configured deadline."""
 
 
+class RuntimeStopError(RuntimeLifecycleError):
+    """Raised when an owned process remains alive after bounded shutdown."""
+
+
 # Names used by callers that prefer a shorter/HTTP-oriented spelling.
 RuntimeReadinessTimeout = RuntimeTimeoutError
 RuntimeStartupError = RuntimeStartError
@@ -374,6 +378,12 @@ class RuntimeManager:
         self._reap_one(rid)
         existing = self._records.get(rid)
         if existing is not None and self._is_process_alive(existing.process):
+            if existing.status.state is RuntimeState.STOPPING:
+                raise RuntimeStopError(
+                    f"Runtime {rid} still has incomplete shutdown",
+                    runtime_id=rid,
+                    status=existing.status,
+                )
             if not force:
                 # A prior invocation may have disabled readiness; an explicit
                 # readiness request can still wait for the existing process.
@@ -424,7 +434,7 @@ class RuntimeManager:
 
         try:
             process = self._spawn(command, working_dir, runtime)
-        except BaseException as exc:
+        except Exception as exc:
             self._mark_start_failure(status, exc)
             self._records[rid] = _RuntimeRecord(rid, runtime, None, status, extra)
             raise self._start_exception(status, exc) from exc
@@ -452,10 +462,14 @@ class RuntimeManager:
             wait_for_ready = bool(readiness)
 
         if wait_for_ready and endpoint:
-            self._wait_until_ready(
-                record,
-                timeout=self._resolve_timeout(runtime, timeout, readiness_timeout),
-            )
+            try:
+                self._wait_until_ready(
+                    record,
+                    timeout=self._resolve_timeout(runtime, timeout, readiness_timeout),
+                )
+            except (KeyboardInterrupt, SystemExit):
+                self.stop(rid)
+                raise
         elif wait_for_ready:
             # Explicitly asking for readiness without an endpoint is a valid
             # no-op: a live process is the only observable readiness signal.
@@ -515,6 +529,11 @@ class RuntimeManager:
             self._wait_for_exit(process, final_limit)
 
         status.returncode = self._poll(process)
+        if status.returncode is None:
+            status.error = f"Runtime {rid} remains alive after shutdown"
+            # Retain ownership so shutdown can be retried and health/status
+            # cannot mistake an unreaped process for a successful stop.
+            raise RuntimeStopError(status.error, runtime_id=rid, status=status)
         status.state = RuntimeState.STOPPED
         status.stopped_at = self.clock()
         self.processes.pop(rid, None)
@@ -588,8 +607,18 @@ class RuntimeManager:
 
     def stop_all(self, *, timeout: float | None = None) -> dict[str, RuntimeStatus]:
         result: dict[str, RuntimeStatus] = {}
-        for rid in tuple(self._records):
-            result[rid] = self.stop(rid, timeout=timeout)
+        failures: list[RuntimeStopError] = []
+        for rid in reversed(tuple(self._records)):
+            try:
+                result[rid] = self.stop(rid, timeout=timeout)
+            except RuntimeStopError as exc:
+                failures.append(exc)
+        if failures:
+            raise RuntimeStopError(
+                f"Shutdown incomplete for {len(failures)} owned runtime(s)",
+                runtime_id=failures[0].runtime_id,
+                status=failures[0].status,
+            )
         return result
 
     shutdown = stop_all
@@ -714,7 +743,7 @@ class RuntimeManager:
                     status.ready_at = self.clock()
                     status.error = None
                     return status
-            except BaseException as exc:
+            except Exception as exc:
                 last_error = exc
 
             now = self.clock()
@@ -956,7 +985,8 @@ class RuntimeManager:
                 pass
             self._wait_for_exit(process, self.stop_timeout)
         record.status.returncode = self._poll(process)
-        self.processes.pop(record.runtime_id, None)
+        if record.status.returncode is not None:
+            self.processes.pop(record.runtime_id, None)
 
     def _resolve_timeout(
         self,
@@ -1089,5 +1119,6 @@ __all__ = [
     "RuntimeStartupError",
     "RuntimePortConflictError",
     "RuntimeTimeoutError",
+    "RuntimeStopError",
     "RuntimeReadinessTimeout",
 ]

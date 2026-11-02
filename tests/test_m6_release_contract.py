@@ -39,7 +39,7 @@ REQUIRED = {
     "core_api": {
         "runtime": "runtime.core_api",
         "provider": "provider.core_api",
-        "health": "http://127.0.0.1:8000/health",
+        "health": "http://127.0.0.1:8000/live",
     },
 }
 

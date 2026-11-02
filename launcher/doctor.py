@@ -26,6 +26,36 @@ STATUS_FAIL = "FAIL"
 _STATUSES = {STATUS_PASS, STATUS_WARN, STATUS_FAIL}
 
 _ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_SECRET_ENV_NAME = re.compile(
+    r"(?:^|_)(?:SECRET|TOKEN|KEY|API_?KEY|ACCESS_?KEY|MASTER_?KEY|PASSWORD|PASSWD|CREDENTIAL|AUTH)(?:_|$)",
+    re.IGNORECASE,
+)
+_PATH_FIELDS = {
+    "path",
+    "model_path",
+    "main_model",
+    "main_model_path",
+    "mmproj",
+    "mmproj_path",
+    "config_path",
+    "config_file",
+    "executable",
+    "executable_override",
+    "working_dir",
+    "workdir",
+    "directory",
+    "dir",
+    "file",
+}
+_PATH_ARGUMENTS = {
+    "-m",
+    "--model",
+    "--model-path",
+    "--mmproj",
+    "--mmproj-path",
+    "--config",
+    "--config-file",
+}
 
 # These are the runtime packages declared by requirements.txt.  ``pytest``
 # and ``httpx`` are useful for the offline test suite but are not required to
@@ -170,6 +200,79 @@ def _profile_env_names(path: Path) -> set[str]:
     return set(_ENV_REF.findall(text))
 
 
+def _is_path_field(key: str) -> bool:
+    normalised = key.lower().replace("-", "_")
+    return (
+        normalised in _PATH_FIELDS
+        or normalised.endswith(("_path", "_file", "_directory", "_dir", "_executable"))
+    )
+
+
+def _path_environment_names(raw: Mapping[str, Any] | None) -> set[str]:
+    """Find env references used only as filesystem path inputs."""
+
+    names: set[str] = set()
+
+    def references(value: Any) -> set[str]:
+        if isinstance(value, str):
+            return set(_ENV_REF.findall(value))
+        if isinstance(value, Mapping):
+            return set().union(*(references(child) for child in value.values())) if value else set()
+        if isinstance(value, (list, tuple)):
+            return set().union(*(references(child) for child in value)) if value else set()
+        return set()
+
+    def argument_references(value: Any, path_arguments: set[str]) -> set[str]:
+        if not isinstance(value, (list, tuple)):
+            return set()
+        result: set[str] = set()
+        expects_path = False
+        for argument in value:
+            if not isinstance(argument, str):
+                expects_path = False
+                continue
+            if expects_path:
+                result.update(_ENV_REF.findall(argument))
+                expects_path = False
+                continue
+            if argument in path_arguments:
+                expects_path = True
+                continue
+            if any(argument.startswith(option + "=") for option in path_arguments):
+                result.update(_ENV_REF.findall(argument))
+        return result
+
+    def walk(value: Any) -> None:
+        if isinstance(value, Mapping):
+            runtime_type = str(value.get("type", "")).lower()
+            runtime_path_arguments = set(_PATH_ARGUMENTS)
+            if runtime_type == "service":
+                runtime_path_arguments.discard("-m")
+            for key, child in value.items():
+                key_text = str(key)
+                if _is_path_field(key_text):
+                    names.update(references(child))
+                if key_text == "args":
+                    names.update(argument_references(child, runtime_path_arguments))
+                elif key_text == "runtime_args":
+                    # Defaults mirror commands for display; short ``-m`` is
+                    # ambiguous there and commonly means a Python module.
+                    defaults_path_arguments = runtime_path_arguments - {"-m"}
+                    names.update(argument_references(child, defaults_path_arguments))
+                elif key_text == "argument_overrides" and isinstance(child, Mapping):
+                    for option, override in child.items():
+                        if str(option) in runtime_path_arguments:
+                            names.update(references(override))
+                walk(child)
+        elif isinstance(value, (list, tuple)):
+            for child in value:
+                walk(child)
+
+    if raw is not None:
+        walk(raw)
+    return names
+
+
 def _raw_profile(path: Path) -> Mapping[str, Any] | None:
     """Read only the raw mapping needed for env/target diagnostics."""
 
@@ -182,7 +285,12 @@ def _raw_profile(path: Path) -> Mapping[str, Any] | None:
     return value if isinstance(value, Mapping) else None
 
 
-def _load_configuration(path: Path, environ: Mapping[str, str]) -> tuple[Any | None, Exception | None]:
+def _load_configuration(
+    path: Path,
+    environ: Mapping[str, str],
+    *,
+    raw: Mapping[str, Any] | None = None,
+) -> tuple[Any | None, Exception | None]:
     """Load a profile with placeholders for missing ``${ENV}`` references.
 
     ``ConfigurationLoader`` intentionally reads ``os.environ``.  Missing
@@ -197,18 +305,24 @@ def _load_configuration(path: Path, environ: Mapping[str, str]) -> tuple[Any | N
         return None, exc
 
     names = _profile_env_names(path)
+    path_names = _path_environment_names(raw if raw is not None else _raw_profile(path))
     saved: dict[str, str | None] = {}
     had: set[str] = set()
-    for name in names:
-        if name in os.environ:
-            had.add(name)
-            saved[name] = os.environ[name]
-        else:
-            saved[name] = None
-        # A placeholder is enough for validation.  In particular, do not copy
-        # an injected secret from ``environ`` into process state.
-        os.environ[name] = "__oratrice_doctor_placeholder__"
     try:
+        for name in names:
+            if name in os.environ:
+                had.add(name)
+                saved[name] = os.environ[name]
+            else:
+                saved[name] = None
+            # Expand only supplied, non-secret values that the profile uses
+            # as paths. Other references stay placeholders so secrets and
+            # unrelated environment values never enter the configuration.
+            value = environ.get(name)
+            if name in path_names and not _SECRET_ENV_NAME.search(name) and isinstance(value, str) and value:
+                os.environ[name] = value
+            else:
+                os.environ[name] = "__oratrice_doctor_placeholder__"
         return ConfigurationLoader(path).load(), None
     except Exception as exc:
         return None, exc
@@ -232,64 +346,300 @@ def _check_profile_path(path: Path) -> DoctorCheck:
     return DoctorCheck("config.path", STATUS_PASS, "profile file is readable")
 
 
-def _path_items(configuration: Any, plan: Any | None) -> list[tuple[str, Path, bool]]:
-    """Return ``(label, path, directory_expected)`` without touching files."""
+def _effective_arguments(arguments: Sequence[str], overrides: Mapping[str, str]) -> tuple[str, ...]:
+    result = [str(value) for value in arguments]
+    for option, value in overrides.items():
+        found = False
+        index = 0
+        while index < len(result):
+            if result[index] == option:
+                found = True
+                if index + 1 < len(result):
+                    result[index + 1] = str(value)
+                else:
+                    result.append(str(value))
+                index += 2
+            else:
+                index += 1
+        if not found:
+            result.extend((option, str(value)))
+    return tuple(result)
 
-    result: list[tuple[str, Path, bool]] = []
-    seen: set[tuple[str, str, bool]] = set()
 
-    def add(label: str, value: Any, *, directory: bool = False) -> None:
-        if not isinstance(value, Path):
-            return
-        key = (label, str(value), directory)
-        if key not in seen:
-            seen.add(key)
-            result.append((label, value, directory))
+def _argument_paths(
+    arguments: Sequence[str],
+    *,
+    runtime: Any,
+    configuration: Any,
+    runtime_id: str,
+) -> list[tuple[str, Path, str]]:
+    """Return declared model, projector, and config paths from launch args."""
 
-    def walk(value: Any, label: str) -> None:
-        if isinstance(value, Path):
-            directory = label.lower().endswith(("working_dir", "workdir", ".dir", ".directory"))
-            add(label, value, directory=directory)
-        elif isinstance(value, Mapping):
-            for child_key, child in value.items():
-                walk(child, f"{label}.{child_key}")
-        elif isinstance(value, (list, tuple)):
-            for index, child in enumerate(value):
-                walk(child, f"{label}[{index}]")
+    working_dir = _field(runtime, "working_dir")
+    source_path = getattr(configuration, "source_path", None)
+    base = working_dir if isinstance(working_dir, Path) else (
+        source_path.parent if isinstance(source_path, Path) else Path.cwd()
+    )
+    result: list[tuple[str, Path, str]] = []
+    path_arguments = set(_PATH_ARGUMENTS)
+    if str(_field(runtime, "type", "")).lower() == "service":
+        path_arguments.discard("-m")
 
-    for section_name in ("runtimes", "models"):
-        section = getattr(configuration, section_name, {})
-        if not isinstance(section, Mapping):
-            continue
-        for key, item in section.items():
-            prefix = f"{section_name}.{key}"
-            add(f"{prefix}.executable", _field(item, "executable"))
-            add(f"{prefix}.working_dir", _field(item, "working_dir"), directory=True)
-            add(f"{prefix}.path", _field(item, "path"))
+    def add(option: str, raw_path: str) -> None:
+        path = Path(raw_path).expanduser()
+        if not path.is_absolute():
+            path = base / path
+        result.append((f"runtimes.{runtime_id}.args[{option}]", path.resolve(strict=False), option))
 
-            # Configuration dataclasses merge ``options`` into their public
-            # mapping.  Walk the original options when present so metadata
-            # paths such as ``mmproj_path`` and ``config_path`` are checked.
-            options = getattr(item, "options", None)
-            if isinstance(options, Mapping):
-                walk(options, f"{prefix}.metadata")
-
-    # Defaults hold launcher and gateway metadata whose path-like keys are
-    # normalised by ConfigurationLoader (for example ``gateway.config_path``).
-    walk(getattr(configuration, "defaults", {}), "defaults")
-
-    if plan is not None:
-        for target in (*getattr(plan, "targets", ()), *getattr(plan, "optional_targets", ())):
-            override = getattr(target, "executable_override", None)
-            add(f"launcher.{getattr(target, 'id', 'target')}.executable_override", override)
+    index = 0
+    while index < len(arguments):
+        argument = str(arguments[index])
+        option = next((item for item in path_arguments if argument.startswith(item + "=")), None)
+        if option is not None:
+            add(option, argument.split("=", 1)[1])
+        elif argument in path_arguments and index + 1 < len(arguments):
+            add(argument, str(arguments[index + 1]))
+            index += 1
+        index += 1
     return result
 
 
-def _check_paths(configuration: Any, plan: Any | None) -> DoctorCheck:
+def _profile_path_value(configuration: Any, value: Any, label: str) -> Path | None:
+    """Read typed paths plus common path aliases left as metadata strings."""
+
+    if isinstance(value, Path):
+        return value
+    field_name = label.rsplit(".", 1)[-1].split("[", 1)[0]
+    if not isinstance(value, str) or not value.strip() or not _is_path_field(field_name):
+        return None
+    path = Path(value).expanduser()
+    source_path = getattr(configuration, "source_path", None)
+    if not path.is_absolute():
+        base = source_path.parent if isinstance(source_path, Path) else Path.cwd()
+        path = base / path
+    try:
+        return path.resolve(strict=False)
+    except OSError:
+        return path
+
+
+def _path_items(configuration: Any, plan: Any | None) -> list[tuple[str, Path, bool, bool]]:
+    """Return ``(field label, path, directory expected, required)`` entries."""
+
+    runtimes = getattr(configuration, "runtimes", {})
+    models = getattr(configuration, "models", {})
+    plan_targets = tuple(getattr(plan, "targets", ())) if plan is not None else ()
+    optional_targets = tuple(getattr(plan, "optional_targets", ())) if plan is not None else ()
+    targets_by_runtime: dict[str, list[Any]] = {}
+    required_runtime_ids: set[str] = set()
+    for target in (*plan_targets, *optional_targets):
+        runtime_id = str(getattr(target, "runtime_id", ""))
+        if runtime_id:
+            targets_by_runtime.setdefault(runtime_id, []).append(target)
+            if target in plan_targets:
+                required_runtime_ids.add(runtime_id)
+
+    result_by_path: dict[tuple[str, bool], tuple[str, Path, bool, bool]] = {}
+
+    def add(label: str, value: Any, *, directory: bool = False, required: bool = False) -> None:
+        if not isinstance(value, Path):
+            return
+        key = (str(value), directory)
+        existing = result_by_path.get(key)
+        if existing is None:
+            result_by_path[key] = (label, value, directory, required)
+            return
+        old_label, old_path, old_directory, old_required = existing
+        # Prefer the resource's field label over a duplicate command argument
+        # label, while preserving requiredness from whichever source uses it.
+        label_rank = 0 if label.startswith(("models.", "defaults.")) else 1
+        old_rank = 0 if old_label.startswith(("models.", "defaults.")) else 1
+        preferred_label = label if label_rank < old_rank else old_label
+        result_by_path[key] = (preferred_label, old_path, old_directory, old_required or required)
+
+    def walk(value: Any, label: str, *, required: bool) -> None:
+        path_value = _profile_path_value(configuration, value, label)
+        if path_value is not None:
+            directory = label.lower().endswith(("working_dir", "workdir", ".dir", ".directory"))
+            add(label, path_value, directory=directory, required=required)
+        elif isinstance(value, Mapping):
+            for child_key, child in value.items():
+                walk(child, f"{label}.{child_key}", required=required)
+        elif isinstance(value, (list, tuple)):
+            for index, child in enumerate(value):
+                walk(child, f"{label}[{index}]", required=required)
+
+    # The selected target decides which executable is actually used. A stale
+    # runtime executable is not a required asset when every selected target
+    # for that runtime supplies an executable override.
+    for runtime_id, item in (runtimes.items() if isinstance(runtimes, Mapping) else ()):
+        runtime_targets = targets_by_runtime.get(str(runtime_id), [])
+        required_targets = [target for target in runtime_targets if target in plan_targets]
+        target_uses_runtime_executable = (
+            not runtime_targets
+            or any(getattr(target, "executable_override", None) is None for target in required_targets)
+            or (not required_targets and all(
+                getattr(target, "executable_override", None) is None for target in runtime_targets
+            ))
+        )
+        if target_uses_runtime_executable:
+            add(
+                f"runtimes.{runtime_id}.executable",
+                _field(item, "executable"),
+                required=bool(required_targets),
+            )
+        add(
+            f"runtimes.{runtime_id}.working_dir",
+            _field(item, "working_dir"),
+            directory=True,
+            required=bool(required_targets),
+        )
+        options = getattr(item, "options", None)
+        if isinstance(options, Mapping):
+            walk(options, f"runtimes.{runtime_id}.metadata", required=bool(required_targets))
+
+        arguments = tuple(getattr(item, "args", ()) or ())
+        for target in runtime_targets:
+            effective = _effective_arguments(
+                arguments,
+                getattr(target, "argument_overrides", {}) or {},
+            )
+            for label, path, _option in _argument_paths(
+                effective,
+                runtime=item,
+                configuration=configuration,
+                runtime_id=str(runtime_id),
+            ):
+                add(label, path, required=target in plan_targets)
+
+    argument_model_paths: dict[str, set[Path]] = {}
+    argument_mmproj_paths: dict[str, set[Path]] = {}
+    for target in plan_targets:
+        runtime_id = str(getattr(target, "runtime_id", ""))
+        runtime = runtimes.get(runtime_id) if isinstance(runtimes, Mapping) else None
+        if runtime is None:
+            continue
+        effective = _effective_arguments(
+            tuple(getattr(runtime, "args", ()) or ()),
+            getattr(target, "argument_overrides", {}) or {},
+        )
+        for _label, path, option in _argument_paths(
+            effective,
+            runtime=runtime,
+            configuration=configuration,
+            runtime_id=runtime_id,
+        ):
+            if option in {"-m", "--model", "--model-path"}:
+                argument_model_paths.setdefault(runtime_id, set()).add(path)
+            elif option in {"--mmproj", "--mmproj-path"}:
+                argument_mmproj_paths.setdefault(runtime_id, set()).add(path)
+
+    for key, item in (models.items() if isinstance(models, Mapping) else ()):
+        runtime_id = _field(item, "runtime")
+        model_enabled = bool(_field(item, "enabled", True))
+        required_runtime = model_enabled and runtime_id in required_runtime_ids
+        model_path = _field(item, "path")
+        expected_model_paths = argument_model_paths.get(str(runtime_id), set())
+        model_path_required = required_runtime and (
+            not expected_model_paths or model_path in expected_model_paths
+        )
+        add(f"models.{key}.path", model_path, required=model_path_required)
+
+        options = getattr(item, "options", None)
+        if isinstance(options, Mapping):
+            for option_key, option_value in options.items():
+                option_label = f"models.{key}.metadata.{option_key}"
+                if isinstance(option_value, Path) and "mmproj" in str(option_key).lower():
+                    expected_mmproj_paths = argument_mmproj_paths.get(str(runtime_id), set())
+                    option_required = required_runtime and (
+                        not expected_mmproj_paths or option_value in expected_mmproj_paths
+                    )
+                    add(option_label, option_value, required=option_required)
+                else:
+                    walk(option_value, option_label, required=required_runtime)
+
+    # Defaults can carry path-like fields (such as gateway config_path). A
+    # containing resource is required only when its runtime/provider/model
+    # reference belongs to a selected target.
+    required_refs: set[str] = set()
+    for target in plan_targets:
+        required_refs.update({str(getattr(target, "id", "")), str(getattr(target, "runtime_id", ""))})
+        runtime = runtimes.get(str(getattr(target, "runtime_id", ""))) if isinstance(runtimes, Mapping) else None
+        provider = _field(runtime, "provider") if runtime is not None else None
+        if provider:
+            required_refs.add(str(provider))
+        for model in (models.values() if isinstance(models, Mapping) else ()):
+            if _field(model, "runtime") == getattr(target, "runtime_id", None):
+                model_id = _field(model, "id")
+                if model_id:
+                    required_refs.add(str(model_id))
+
+    def walk_defaults(value: Any, label: str, *, required_context: bool = False) -> None:
+        if isinstance(value, Mapping):
+            references = {
+                str(child)
+                for key, child in value.items()
+                if str(key).lower() in {"id", "runtime", "runtime_id", "provider", "provider_id", "model", "model_id", "target", "target_id"}
+            }
+            required_here = required_context or bool(references & required_refs)
+            for child_key, child in value.items():
+                key_text = str(child_key)
+                if label == "defaults" and key_text == "launcher":
+                    continue
+                walk_defaults(
+                    child,
+                    f"{label}.{key_text}",
+                    required_context=required_here,
+                )
+        elif isinstance(value, (list, tuple)):
+            for index, child in enumerate(value):
+                walk_defaults(
+                    child,
+                    f"{label}[{index}]",
+                    required_context=required_context,
+                )
+        else:
+            path_value = _profile_path_value(configuration, value, label)
+            if path_value is not None:
+                directory = label.lower().endswith(("working_dir", "workdir", ".dir", ".directory"))
+                add(label, path_value, directory=directory, required=required_context)
+
+    defaults = getattr(configuration, "defaults", {})
+    if isinstance(defaults, Mapping):
+        walk_defaults(defaults, "defaults")
+
+    if plan is not None:
+        for target in (*plan_targets, *optional_targets):
+            required = target in plan_targets
+            override = getattr(target, "executable_override", None)
+            add(f"launcher.{getattr(target, 'id', 'target')}.executable_override", override, required=required)
+
+    return list(result_by_path.values())
+
+
+def _path_corrections(labels: Sequence[str]) -> str:
+    lower_labels = tuple(label.lower() for label in labels)
+    actions: list[str] = []
+    if any("executable" in label for label in lower_labels):
+        actions.append("install the selected runtime or correct its executable field")
+    if any("working_dir" in label or "workdir" in label for label in lower_labels):
+        actions.append("create the required directory or correct its working_dir field")
+    if any("mmproj" in label or label.startswith("models.") for label in lower_labels):
+        actions.append("download or restore the model/mmproj asset and correct its labeled model field")
+    if any("config" in label for label in lower_labels):
+        actions.append("create the required config file or correct its labeled config_path field")
+    if not actions:
+        actions.append("correct the labeled field or set its non-secret path environment variable")
+    return "; next: " + "; ".join(dict.fromkeys(actions)) + "."
+
+
+def _check_paths(configuration: Any, plan: Any | None, *, strict_paths: bool = False) -> DoctorCheck:
     items = _path_items(configuration, plan)
-    missing: list[str] = []
-    wrong_type: list[str] = []
-    for label, path, directory in items:
+    missing_required: list[str] = []
+    missing_optional: list[str] = []
+    wrong_required: list[str] = []
+    wrong_optional: list[str] = []
+    for label, path, directory, required in items:
         try:
             exists = path.exists()
             valid = path.is_dir() if directory else path.is_file()
@@ -297,21 +647,26 @@ def _check_paths(configuration: Any, plan: Any | None) -> DoctorCheck:
             exists = False
             valid = False
         if not exists:
-            missing.append(label)
+            (missing_required if required else missing_optional).append(label)
         elif not valid:
-            wrong_type.append(label)
-    if wrong_type:
-        return DoctorCheck(
-            "paths",
-            STATUS_FAIL,
-            f"{len(wrong_type)} configured path(s) have the wrong type",
-        )
-    if missing:
-        return DoctorCheck(
-            "paths",
-            STATUS_WARN,
-            f"{len(missing)} configured path(s) are not present",
-        )
+            (wrong_required if required else wrong_optional).append(label)
+
+    messages: list[str] = []
+    if missing_required:
+        messages.append("missing required fields: " + ", ".join(missing_required))
+    if missing_optional:
+        messages.append("missing inactive/optional fields: " + ", ".join(missing_optional))
+    if wrong_required:
+        messages.append("wrong type for required fields: " + ", ".join(wrong_required))
+    if wrong_optional:
+        messages.append("wrong type for inactive/optional fields: " + ", ".join(wrong_optional))
+    if messages:
+        labels = missing_required + missing_optional + wrong_required + wrong_optional
+        messages.append(_path_corrections(labels).lstrip("; "))
+        failed = bool(wrong_required) or (strict_paths and bool(missing_required))
+        if failed:
+            return DoctorCheck("paths", STATUS_FAIL, "; ".join(messages))
+        return DoctorCheck("paths", STATUS_WARN, "; ".join(messages))
     return DoctorCheck("paths", STATUS_PASS, f"{len(items)} configured path(s) are present")
 
 
@@ -533,6 +888,7 @@ def check(
     *,
     environ: Mapping[str, str] | None = None,
     probe: bool = False,
+    strict_paths: bool = False,
 ) -> DoctorReport:
     """Run the pure offline checks and return a report.
 
@@ -545,7 +901,7 @@ def check(
     env = environ if environ is not None else os.environ
     checks: list[DoctorCheck] = [_check_profile_path(path)]
     raw = _raw_profile(path)
-    configuration, error = _load_configuration(path, env) if path.is_file() else (None, None)
+    configuration, error = _load_configuration(path, env, raw=raw) if path.is_file() else (None, None)
     if error is not None or configuration is None:
         checks.append(DoctorCheck("config.parse", STATUS_FAIL, "configuration could not be parsed"))
         # Keep the output useful while avoiding an exception string that might
@@ -568,7 +924,7 @@ def check(
     else:
         checks.append(DoctorCheck("launcher.plan", STATUS_PASS, "launcher targets and ordering are valid"))
 
-    checks.append(_check_paths(configuration, plan))
+    checks.append(_check_paths(configuration, plan, strict_paths=strict_paths))
     checks.append(_check_aliases(configuration))
     checks.append(_check_dependencies())
     checks.append(_check_environment(configuration, raw, env))
@@ -594,12 +950,13 @@ def run_doctor(
     *,
     environ: Mapping[str, str] | None = None,
     probe: bool = False,
+    strict_paths: bool = False,
     json_output: bool = False,
     output: Callable[[str], Any] = print,
 ) -> int:
     """Run and render the doctor, returning a process-style exit code."""
 
-    report = check(profile, environ=environ, probe=probe)
+    report = check(profile, environ=environ, probe=probe, strict_paths=strict_paths)
     if json_output:
         output(json.dumps(report.to_dict(), ensure_ascii=False, sort_keys=True))
     else:
@@ -614,16 +971,23 @@ doctor = check
 
 def main(argv: Sequence[str] | None = None) -> int:  # pragma: no cover - thin CLI shim
     import argparse
+    from core.configuration import default_service_profile
 
     parser = argparse.ArgumentParser(description="Run the offline Oratrice self-check")
     parser.add_argument(
         "--profile",
-        default=str(Path(__file__).resolve().parents[1] / "config" / "profiles" / "live.yaml"),
+        default=str(default_service_profile(Path(__file__).resolve().parents[1])),
     )
     parser.add_argument("--json", action="store_true", dest="json_output")
     parser.add_argument("--probe", action="store_true")
+    parser.add_argument("--strict-paths", action="store_true")
     args = parser.parse_args(argv)
-    return run_doctor(args.profile, probe=args.probe, json_output=args.json_output)
+    return run_doctor(
+        args.profile,
+        probe=args.probe,
+        strict_paths=args.strict_paths,
+        json_output=args.json_output,
+    )
 
 
 __all__ = [
