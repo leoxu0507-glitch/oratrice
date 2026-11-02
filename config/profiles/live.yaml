@@ -96,6 +96,8 @@ runtimes:
       - "on"
       - -t
       - "16"
+      - --cache-ram
+      - "0"
 
   gpt_oss:
     id: runtime.gpt_oss
@@ -117,6 +119,8 @@ runtimes:
       - "on"
       - -t
       - "16"
+      - --cache-ram
+      - "0"
 
   qwen_vl:
     id: runtime.qwen_vl
@@ -407,6 +411,8 @@ defaults:
         - 127.0.0.1
         - --port
         - "8090"
+        - --cache-ram
+        - "0"
 
     gpt_oss:
       id: service.gpt_oss
@@ -427,6 +433,8 @@ defaults:
         - 127.0.0.1
         - --port
         - "8080"
+        - --cache-ram
+        - "0"
 
     qwen_vl:
       id: service.qwen_vl

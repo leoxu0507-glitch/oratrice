@@ -12,6 +12,12 @@ from pathlib import Path
 
 import pytest
 
+from core.runtime_manager import (
+    RuntimeStartError,
+    RuntimeState,
+    RuntimeStatus,
+    RuntimeTimeoutError,
+)
 from launcher.cli import GATEWAY_KEY_ENV, run
 from launcher.orchestrator import LauncherOrchestrator
 
@@ -24,10 +30,13 @@ class CleanupFailure(RuntimeError):
 
 
 class FakeManager:
-    def __init__(self, *, fail_start=(), interrupt_start=(), stop_error=None):
+    def __init__(
+        self, *, fail_start=(), interrupt_start=(), stop_error=None, start_error=None
+    ):
         self.fail_start = set(fail_start)
         self.interrupt_start = set(interrupt_start)
         self.stop_error = stop_error
+        self.start_error = start_error
         self.started: list[str] = []
         self.stop_all_calls = 0
 
@@ -37,6 +46,8 @@ class FakeManager:
         if runtime_id in self.interrupt_start:
             raise KeyboardInterrupt()
         if runtime_id in self.fail_start:
+            if self.start_error is not None:
+                raise self.start_error
             raise RuntimeError("injected startup failure")
         return object()
 
@@ -100,6 +111,99 @@ def test_cleanup_failure_propagates_and_keeps_orchestrator_retryable(configurati
     launcher.stop()
     assert manager.stop_all_calls == 2
     assert launcher._active is False
+
+
+@pytest.mark.parametrize("returncode", [0, 23])
+def test_cli_reports_typed_runtime_failure_without_exception_message(returncode):
+    secret_message = "private-startup-secret"
+    manager = FakeManager(
+        fail_start={"runtime.gpt_oss"},
+        start_error=RuntimeStartError(
+            secret_message,
+            runtime_id="runtime.gpt_oss",
+            status=RuntimeStatus(
+                runtime_id="runtime.gpt_oss",
+                state=RuntimeState.EXITED,
+                returncode=returncode,
+            ),
+        ),
+    )
+    env: dict[str, str] = {}
+    output: list[str] = []
+
+    def orchestrator_factory(configuration, env):
+        return LauncherOrchestrator(
+            configuration,
+            runtime_manager=manager,
+            env=env,
+            health_probe=lambda *args: False,
+        )
+
+    code = run(
+        ["--no-browser", "--profile", str(PROFILE)],
+        orchestrator_factory=orchestrator_factory,
+        environ=env,
+        output=output.append,
+    )
+
+    failure_line = next(line for line in output if "gpt_oss: FAILED" in line)
+    assert code == 1
+    assert failure_line == (
+        "  gpt_oss: FAILED [RuntimeStartError, "
+        f"runtime_state=exited, returncode={returncode}]"
+    )
+    assert secret_message not in "\n".join(output)
+
+
+def test_timeout_runtime_failure_displays_state_without_returncode():
+    manager = FakeManager(
+        fail_start={"runtime.gpt_oss"},
+        start_error=RuntimeTimeoutError(
+            "startup timed out",
+            runtime_id="runtime.gpt_oss",
+            status=RuntimeStatus(
+                runtime_id="runtime.gpt_oss", state=RuntimeState.TIMEOUT
+            ),
+        ),
+    )
+    env: dict[str, str] = {}
+    output: list[str] = []
+
+    def orchestrator_factory(configuration, env):
+        return LauncherOrchestrator(
+            configuration,
+            runtime_manager=manager,
+            env=env,
+            health_probe=lambda *args: False,
+        )
+
+    code = run(
+        ["--no-browser", "--profile", str(PROFILE)],
+        orchestrator_factory=orchestrator_factory,
+        environ=env,
+        output=output.append,
+    )
+
+    failure_line = next(line for line in output if "gpt_oss: FAILED" in line)
+    assert code == 1
+    assert failure_line == "  gpt_oss: FAILED [RuntimeTimeoutError, runtime_state=timeout]"
+
+
+def test_ordinary_start_exception_keeps_legacy_diagnostic_shape(configuration):
+    manager = FakeManager(fail_start={"runtime.gpt_oss"})
+    launcher = LauncherOrchestrator(
+        configuration,
+        runtime_manager=manager,
+        env={},
+        health_probe=lambda *args: False,
+    )
+
+    result = launcher.start(open_ui=False)
+
+    outcome = result.outcomes[0]
+    assert outcome.error_type == "RuntimeError"
+    assert outcome.runtime_state is None
+    assert outcome.returncode is None
 
 
 def test_stop_failure_restores_environment_and_preserves_active_state(configuration):
