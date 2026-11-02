@@ -1,0 +1,2 @@
+# LiteLLM version validated for the local gateway environment.
+litellm[proxy]==1.74.3

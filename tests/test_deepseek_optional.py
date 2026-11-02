@@ -17,7 +17,7 @@ from core.configuration import ConfigurationLoader
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 LIVE_PROFILE = PROJECT_ROOT / "config" / "profiles" / "live.yaml"
-LITELLM_CONFIG = PROJECT_ROOT.parent.parent / "infrastructure" / "litellm" / "config.yaml"
+LITELLM_CONFIG = PROJECT_ROOT / "config" / "gateway.cloud.example.yaml"
 
 
 def _load_live(monkeypatch):

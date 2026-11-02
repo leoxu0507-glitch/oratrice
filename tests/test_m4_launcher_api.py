@@ -31,10 +31,8 @@ def test_live_profile_places_core_api_after_gateway(live_config):
     core_api = plan.targets[-1]
     assert core_api.runtime_id == "runtime.core_api"
     assert core_api.timeout == 60
-    assert core_api.executable_override == Path(
-        r"D:\AI\projects\Oratrice\.venv\Scripts\python.exe"
-    )
-    assert core_api.health_endpoint == "http://127.0.0.1:8000/health"
+    assert core_api.executable_override == (PROFILE.parents[2] / ".venv/Scripts/python.exe").resolve()
+    assert core_api.health_endpoint == "http://127.0.0.1:8000/live"
     assert tuple(live_config.runtimes["runtime.core_api"].args)[:3] == (
         "-m",
         "uvicorn",

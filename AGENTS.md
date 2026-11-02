@@ -55,6 +55,26 @@ python -B -m pytest -q -p no:cacheprovider tests/test_m5_release_gate.py
 
 ## Bounded validation evidence
 
+- M11 conversation state belongs to the in-memory Web UI. `/chat` accepts
+  optional complete text `history` pairs; omitting it preserves legacy calls.
+  The API owns request/context bounds, Core preserves roles for the provider,
+  and Router remains decision-only. No persistent memory or automatic trimming.
+- M11 JavaScript behavior tests run separately with
+  `node --test tests/web_chat.test.cjs`; no npm dependency or frontend build.
+  Keep pytest free of new Node subprocesses and model/service startup.
+- M10 adds generated `config/profiles/local.yaml` and `config/gateway.local.yaml`;
+  these are ignored operator files. Service entry points prefer the local
+  profile when present, otherwise the historical live profile. Templates and
+  `scripts/configure_local.py` are the reproducible source.
+- Core and Gateway have separate `.venv` and `.gateway-venv` installations.
+  Use `scripts/setup_oratrice.ps1 -Gateway` for the latter. Keep the external
+  historical infrastructure venv untouched during deployment tests.
+- On the validation host use `-p no:cacheprovider` and an explicit writable
+  `--basetemp` with an existing parent directory for pytest. Default AppData
+  temporary paths have produced setup errors.
+- A validation owner tracks one attempt budget across helpers and agents;
+  count setup failures and do not reset a budget by renaming a helper.
+
 - Every validation path has at most three attempts. Do not rerun the same
   command with the same condition after an informative result; change the
   hypothesis or record the path as deferred/blocked instead.

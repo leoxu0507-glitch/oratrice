@@ -18,8 +18,18 @@ one in this order:
 The selected interpreter is reported before any environment work.  An
 explicit path that does not exist, cannot run, or is older than Python 3.10 is
 an error; the script does not silently fall through to another interpreter.
+Python 3.10 is the bootstrap's minimum compatible version; Python 3.13 is the
+version validated on this host during M7.  That historical validation does
+not establish a clean M10 Gateway installation.
 
 ## Create and install
+
+If a host blocks local scripts, an explicitly reviewed setup invocation can use
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup_oratrice.ps1`
+with the same arguments below. This applies to that child process only; setup
+does not change the machine's execution policy. Automated validation used a
+dedicated writable temporary directory where the host's default temp ACLs
+prevented Python `ensurepip` from completing.
 
 The default environment is `<project root>\.venv`:
 
@@ -46,9 +56,38 @@ to pip:
 ```
 
 The script checks each package's import and requirements version constraints
-after installation.  `-CheckOnly` intentionally checks only the ranges in
-`requirements.txt`, so an existing environment can be diagnosed without
-requiring the M6 baseline versions.
+after installation and runs `pip check` to detect dependency conflicts.
+`-CheckOnly` checks only the constraints in the selected requirements file,
+not Core's `constraints.txt`; an existing Core environment can therefore be
+diagnosed without requiring the M6 baseline versions.
+
+## Optional LiteLLM Gateway environment
+
+The Gateway has a separate environment so its proxy dependencies do not
+change the Core dependency baseline:
+
+```powershell
+.\scripts\setup_oratrice.ps1 -Gateway
+.\scripts\setup_oratrice.ps1 -Gateway -CheckOnly
+```
+
+The default path is `<project root>\.gateway-venv`.  Gateway mode reads
+`requirements-gateway.txt`, which pins the direct requirement
+`litellm[proxy]==1.74.3`; it does not pass Core's `constraints.txt` to pip.
+The pin is a direct-dependency baseline, not a lock of every transitive
+package.  Normal setup runs `pip check` after installation.  `-CheckOnly`
+imports the `litellm` module with its local model-cost map and verifies its
+exact distribution version from the requirements entry without network
+access, invoking pip, or changing files.
+
+An explicit interpreter and environment location can be selected as usual:
+
+```powershell
+.\scripts\setup_oratrice.ps1 -Gateway -Python C:\Python313\python.exe -VenvPath work\oratrice-gateway-venv
+```
+
+The default Core environment remains `.venv`, using `requirements.txt` and
+`constraints.txt`.
 
 An alternate location must be explicit.  Relative values are resolved from
 the project root; absolute values are accepted as supplied:

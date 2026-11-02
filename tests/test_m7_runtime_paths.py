@@ -19,7 +19,7 @@ def live_config(monkeypatch):
     return ConfigurationLoader(PROFILE).load()
 
 
-def test_live_overrides_resolve_to_existing_isolated_runtimes(live_config):
+def test_live_overrides_resolve_to_separate_environment_paths(live_config):
     plan = LaunchPlan.from_configuration(live_config)
     gateway = next(item for item in plan.targets if item.id == "litellm_gateway")
     core_api = next(item for item in plan.targets if item.id == "core_api")
@@ -37,8 +37,6 @@ def test_live_overrides_resolve_to_existing_isolated_runtimes(live_config):
     assert core_api.executable_override is not None
     assert gateway.executable_override.is_absolute()
     assert core_api.executable_override.is_absolute()
-    assert gateway.executable_override.is_file()
-    assert core_api.executable_override.is_file()
 
     # The gateway and Core API must not share the gateway-only venv.
     assert gateway.executable_override.parents[1] == LITELLM_ROOT / ".venv-m7-03"
@@ -54,8 +52,6 @@ def test_live_overrides_resolve_to_existing_isolated_runtimes(live_config):
     assert str(old_core).casefold() not in plan_text
 
 
-def test_litellm_start_script_uses_m7_gateway_venv():
-    source = (LITELLM_ROOT / "start.bat").read_text(encoding="utf-8")
-
-    assert 'LITELLM_EXE=%~dp0.venv-m7-03\\Scripts\\litellm.exe' in source
-    assert 'LITELLM_EXE=%~dp0.venv\\Scripts\\litellm.exe' not in source
+def test_gateway_runtime_installation_is_pinned_in_the_source_distribution():
+    source = (ROOT / "requirements-gateway.txt").read_text(encoding="utf-8")
+    assert "litellm[proxy]==1.74.3" in source

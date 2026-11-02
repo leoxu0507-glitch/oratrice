@@ -1,12 +1,16 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 
 internal static class StartOratrice
 {
     private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
+    private const uint CREATE_SUSPENDED = 0x00000004;
+    private const uint INFINITE = 0xFFFFFFFF;
+    private const uint WAIT_FAILED = 0xFFFFFFFF;
+    private const uint THREAD_FAILURE = 0xFFFFFFFF;
     private const int JobObjectExtendedLimitInformation = 9;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -35,14 +39,57 @@ internal static class StartOratrice
         public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
     }
 
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct STARTUPINFO
+    {
+        public int cb;
+        public string lpReserved;
+        public string lpDesktop;
+        public string lpTitle;
+        public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars;
+        public int dwFillAttribute;
+        public int dwFlags;
+        public short wShowWindow, cbReserved2;
+        public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PROCESS_INFORMATION
+    {
+        public IntPtr hProcess;
+        public IntPtr hThread;
+        public uint dwProcessId;
+        public uint dwThreadId;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern IntPtr CreateJobObject(IntPtr attributes, string name);
-    [DllImport("kernel32.dll")]
+    [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool SetInformationJobObject(IntPtr job, int infoClass, IntPtr info, uint length);
-    [DllImport("kernel32.dll")]
+    [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
-    [DllImport("kernel32.dll")]
+    [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool CreateProcess(
+        string applicationName,
+        StringBuilder commandLine,
+        IntPtr processAttributes,
+        IntPtr threadAttributes,
+        bool inheritHandles,
+        uint creationFlags,
+        IntPtr environment,
+        string currentDirectory,
+        ref STARTUPINFO startupInfo,
+        out PROCESS_INFORMATION processInformation);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint ResumeThread(IntPtr thread);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool TerminateProcess(IntPtr process, uint exitCode);
 
     private static int Main(string[] args)
     {
@@ -52,26 +99,63 @@ internal static class StartOratrice
         string python = FindPython();
         if (python == null) return Fail("No usable Python found. Set ORATRICE_PYTHON.");
 
-        ProcessStartInfo info = new ProcessStartInfo();
-        info.FileName = python;
-        info.WorkingDirectory = root;
-        info.UseShellExecute = false;
-        info.CreateNoWindow = false;
-        info.Arguments = Quote(script) + Forward(args);
         IntPtr job = CreateKillJob();
+        if (job == IntPtr.Zero)
+            return Fail("Could not create the process safety job.");
+
+        STARTUPINFO startup = new STARTUPINFO();
+        startup.cb = Marshal.SizeOf(typeof(STARTUPINFO));
+        PROCESS_INFORMATION process = new PROCESS_INFORMATION();
+        StringBuilder commandLine = new StringBuilder(
+            Quote(python) + " " + Quote(script) + Forward(args));
+        bool created = false;
         try
         {
-            using (Process child = Process.Start(info))
+            if (!CreateProcess(
+                    python,
+                    commandLine,
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    false,
+                    CREATE_SUSPENDED,
+                    IntPtr.Zero,
+                    root,
+                    ref startup,
+                    out process))
             {
-                if (child == null) return Fail("Could not start the Python launcher.");
-                if (job != IntPtr.Zero && !AssignProcessToJobObject(job, child.Handle))
-                    Console.WriteLine("Warning: process-tree safety job could not be assigned.");
-                child.WaitForExit();
-                return child.ExitCode;
+                return Fail("Could not start the Python launcher (Win32 " +
+                    Marshal.GetLastWin32Error() + ").");
             }
+            created = true;
+            if (!AssignProcessToJobObject(job, process.hProcess))
+                return AbortChild(process.hProcess, "Could not assign the launcher to the process safety job (Win32 " +
+                    Marshal.GetLastWin32Error() + ").");
+
+            if (ResumeThread(process.hThread) == THREAD_FAILURE)
+                return AbortChild(process.hProcess, "Could not resume the launcher (Win32 " +
+                    Marshal.GetLastWin32Error() + ").");
+
+            CloseHandle(process.hThread);
+            process.hThread = IntPtr.Zero;
+            if (WaitForSingleObject(process.hProcess, INFINITE) == WAIT_FAILED)
+                return Fail("Could not wait for the Python launcher (Win32 " +
+                    Marshal.GetLastWin32Error() + ").");
+            uint exitCode;
+            if (!GetExitCodeProcess(process.hProcess, out exitCode))
+                return Fail("Could not read the Python launcher exit code (Win32 " +
+                    Marshal.GetLastWin32Error() + ").");
+            return unchecked((int)exitCode);
         }
         catch (Exception ex) { return Fail("Launcher failed: " + ex.GetType().Name); }
-        finally { if (job != IntPtr.Zero) CloseHandle(job); }
+        finally
+        {
+            if (created)
+            {
+                if (process.hThread != IntPtr.Zero) CloseHandle(process.hThread);
+                if (process.hProcess != IntPtr.Zero) CloseHandle(process.hProcess);
+            }
+            CloseHandle(job);
+        }
     }
 
     private static string FindPython()
@@ -158,6 +242,16 @@ internal static class StartOratrice
         finally { Marshal.FreeHGlobal(pointer); }
     }
 
+    private static int AbortChild(IntPtr process, string message)
+    {
+        if (process != IntPtr.Zero)
+        {
+            TerminateProcess(process, 2);
+            WaitForSingleObject(process, 5000);
+        }
+        return Fail(message);
+    }
+
     private static string Quote(string value) { return "\"" + value.Replace("\"", "\\\"") + "\""; }
     private static string Forward(string[] args)
     {
@@ -167,5 +261,13 @@ internal static class StartOratrice
         return String.Join("", values.ToArray());
     }
     private static int Fail(string message)
-    { Console.Error.WriteLine(message); Console.WriteLine("Press any key to close."); Console.ReadKey(true); return 2; }
+    {
+        Console.Error.WriteLine(message);
+        if (!Console.IsInputRedirected && !Console.IsOutputRedirected)
+        {
+            Console.WriteLine("Press any key to close.");
+            try { Console.ReadKey(true); } catch (InvalidOperationException) { }
+        }
+        return 2;
+    }
 }

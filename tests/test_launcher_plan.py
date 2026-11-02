@@ -39,18 +39,17 @@ def test_live_launch_plan_is_ordered_local_first_and_side_effect_free(
     assert plan.targets[0].health_endpoint == "http://127.0.0.1:8080/health"
     assert dict(plan.targets[1].argument_overrides) == {"-ngl": "0"}
     gateway = plan.targets[2]
-    assert gateway.executable_override == Path(
-        r"D:\AI\infrastructure\litellm\.venv-m7-03\Scripts\litellm.exe"
-    )
+    root = PROFILE.parents[2]
+    assert gateway.executable_override == (
+        root.parent.parent / "infrastructure/litellm/.venv-m7-03/Scripts/litellm.exe"
+    ).resolve()
     assert gateway.required_env == ("ORATRICE_LITELLM_MASTER_KEY",)
     assert gateway.generate_if_missing is True
     assert gateway.health_endpoint == "http://127.0.0.1:4000/health/liveliness"
     core_api = plan.targets[3]
     assert core_api.timeout == 60
-    assert core_api.executable_override == Path(
-        r"D:\AI\projects\Oratrice\.venv\Scripts\python.exe"
-    )
-    assert core_api.health_endpoint == "http://127.0.0.1:8000/health"
+    assert core_api.executable_override == (root / ".venv/Scripts/python.exe").resolve()
+    assert core_api.health_endpoint == "http://127.0.0.1:8000/live"
     assert [target.runtime_id for target in plan.optional_targets] == ["runtime.qwen_vl"]
     assert plan.optional_targets[0].optional is True
     assert plan.optional_targets[0].before == "litellm_gateway"

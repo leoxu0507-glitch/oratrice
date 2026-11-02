@@ -11,11 +11,19 @@ From the repository root:
 
 ```powershell
 python -m pytest -q
+node --test tests/web_chat.test.cjs
 ```
 
 Use `py -m pytest -q` when the Windows Python launcher is the available
 entrypoint.  Installing dependencies is an environment setup step; the test
 command itself must not download packages or start a model.
+
+M11's separate JavaScript gate uses Node's built-in test runner and VM with
+inert DOM, fetch, and timer fakes. Node is test tooling only; no frontend build
+or npm package is required. CI selects Node 22; local evidence records the
+version actually used. The Python suite checks the shared UI/API contract but
+does not spawn Node. The JS gate exercises the shipped source's conversation
+and recovery behavior; it does not substitute for an actual browser or model.
 
 ## Isolation rules
 

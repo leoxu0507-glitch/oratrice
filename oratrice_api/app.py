@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import inspect
 from pathlib import Path
+from threading import Lock
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -33,6 +34,7 @@ from .contracts import (
     serialise_route_decision,
 )
 from .errors import error_payload, status_for_error, validation_payload
+from .conversation import MAX_CHAT_BODY_BYTES, MAX_REPLY_TOKENS, context_error
 
 
 ApplicationFactory = Callable[..., Any]
@@ -58,6 +60,62 @@ _DECLARATION_KEYS = (
 # an in-process TestClient use the same static assets without a second server
 # or a build-time dependency.
 _WEB_UI_ROOT = Path(__file__).resolve().parents[1] / "frontends" / "web"
+
+
+class _ChatBodyLimit:
+    """Bound chat request buffering before JSON or DTO construction."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope.get("method") != "POST" or scope.get("path") != "/chat":
+            await self.app(scope, receive, send)
+            return
+
+        async def reject():
+            response = JSONResponse(status_code=413, content={"error": {
+                "code": "request_too_large",
+                "message": "Request too large. Shorten your message or start a new conversation.",
+            }})
+            await response(scope, receive, send)
+
+        for name, value in scope.get("headers", ()):
+            if name.lower() == b"content-length":
+                try:
+                    declared = int(value)
+                except ValueError:
+                    continue
+                if declared > MAX_CHAT_BODY_BYTES:
+                    await reject()
+                    return
+
+        chunks = []
+        size = 0
+        while True:
+            event = await receive()
+            if event["type"] == "http.disconnect":
+                return
+            chunk = event.get("body", b"")
+            size += len(chunk)
+            if size > MAX_CHAT_BODY_BYTES:
+                await reject()
+                return
+            if chunk:
+                chunks.append(chunk)
+            if not event.get("more_body", False):
+                break
+        body = b"".join(chunks)
+        delivered = False
+
+        async def replay():
+            nonlocal delivered
+            if not delivered:
+                delivered = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            return await receive()
+
+        await self.app(scope, replay, send)
 
 
 def _now_iso() -> str:
@@ -453,6 +511,13 @@ def create_api(
     state: dict[str, Any] = {
         "application": application,
         "owned": False,
+        # A single admission slot protects one API worker from building an
+        # unbounded queue of blocking model calls.  Chat and route share the
+        # slot because both may consume the Gemma/router resource.  The lock
+        # is intentionally scoped to this application instance; multiple
+        # ASGI workers remain independent and must be bounded by the process
+        # supervisor.
+        "request_admission": Lock(),
     }
 
     @asynccontextmanager
@@ -481,6 +546,7 @@ def create_api(
         lifespan=lifespan,
     )
     api.state.application = application
+    api.add_middleware(_ChatBodyLimit)
 
     # StaticFiles only registers an ASGI mount; it does not open a socket,
     # construct the application graph, or contact a provider.  The explicit
@@ -511,45 +577,87 @@ def create_api(
         del request
         return JSONResponse(status_code=500, content=error_payload(exc))
 
+    def busy_response(operation: str, request_id: str) -> JSONResponse:
+        """Return an immediate retryable response when the slot is occupied."""
+
+        return JSONResponse(
+            status_code=503,
+            headers={"Retry-After": "1"},
+            content={
+                "error": {
+                    "code": f"{operation}_busy",
+                    "message": f"{operation} service is busy; retry later",
+                    "request_id": request_id,
+                    "retryable": True,
+                }
+            },
+        )
+
     @api.post("/chat")
     def chat(payload: ChatRequest, request: Request):
-        application_value = _application_from_request(request)
-        facade = _facade(application_value)
-        values = payload.model_dump(exclude_none=True)
-        model = values.pop("model", None)
-        message = values.pop("message")
+        limit_error = context_error(payload)
+        if limit_error is not None:
+            return JSONResponse(status_code=422, content=limit_error)
+        request_id = str(uuid4())
+        admission = state["request_admission"]
+        if not admission.acquire(blocking=False):
+            return busy_response("chat", request_id)
         try:
-            response = facade.chat(model_id=model, message=message, **values)
-        except CoreError:
-            raise
-        except Exception as exc:
-            # ServerErrorMiddleware re-raises broad Exception handlers after
-            # sending a response in some Starlette versions.  Handling the
-            # final unknown case at the endpoint keeps the JSON envelope
-            # deterministic for both ASGI servers and TestClient.
-            return JSONResponse(status_code=500, content=error_payload(exc))
-        return serialise_chat_response(response)
+            application_value = _application_from_request(request)
+            facade = _facade(application_value)
+            values = payload.model_dump(exclude_none=True)
+            if payload.history is not None and payload.max_tokens is None:
+                values["max_tokens"] = MAX_REPLY_TOKENS
+            model = values.pop("model", None)
+            message = values.pop("message")
+            try:
+                response = facade.chat(model_id=model, message=message, **values)
+            except CoreError:
+                raise
+            except Exception as exc:
+                # ServerErrorMiddleware re-raises broad Exception handlers
+                # after sending a response in some Starlette versions.
+                # Handling the final unknown case at the endpoint keeps the
+                # JSON envelope deterministic for both ASGI servers and
+                # TestClient.
+                return JSONResponse(status_code=500, content=error_payload(exc))
+            return serialise_chat_response(response)
+        finally:
+            # The guard covers the actual blocking facade call.  If a client
+            # disconnects, the worker still owns this slot until that call
+            # returns, preventing a second request from stacking work behind
+            # an abandoned request.
+            admission.release()
 
     @api.post("/route")
     def route(payload: RouteRequest, request: Request):
-        application_value = _application_from_request(request)
-        facade = _facade(application_value)
         request_id = str(uuid4())
-        values = payload.model_dump(exclude_none=True)
-        message = values.pop("message")
-        model = values.pop("model", None)
+        admission = state["request_admission"]
+        if not admission.acquire(blocking=False):
+            return busy_response("route", request_id)
         try:
-            decision = facade.route(
-                message=message,
-                model_id=model,
-                request_id=request_id,
-                **values,
-            )
-        except CoreError:
-            raise
-        except Exception as exc:
-            return JSONResponse(status_code=500, content=error_payload(exc, request_id=request_id))
-        return serialise_route_decision(decision, request_id=request_id)
+            application_value = _application_from_request(request)
+            facade = _facade(application_value)
+            values = payload.model_dump(exclude_none=True)
+            message = values.pop("message")
+            model = values.pop("model", None)
+            try:
+                decision = facade.route(
+                    message=message,
+                    model_id=model,
+                    request_id=request_id,
+                    **values,
+                )
+            except CoreError:
+                raise
+            except Exception as exc:
+                return JSONResponse(
+                    status_code=500,
+                    content=error_payload(exc, request_id=request_id),
+                )
+            return serialise_route_decision(decision, request_id=request_id)
+        finally:
+            admission.release()
 
     @api.get("/live")
     def live():

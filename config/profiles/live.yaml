@@ -73,7 +73,7 @@ providers:
     kind: local
     base_url: http://127.0.0.1:8000
     alias: core-api
-    health_endpoint: http://127.0.0.1:8000/health
+    health_endpoint: http://127.0.0.1:8000/live
 
 runtimes:
   gemma_router:
@@ -299,7 +299,7 @@ defaults:
         runtime: runtime.core_api
         timeout: 60
         executable_override: ../../.venv/Scripts/python.exe
-        health_endpoint: http://127.0.0.1:8000/health
+        health_endpoint: http://127.0.0.1:8000/live
     optional_targets:
       - id: qwen_vl
         runtime: runtime.qwen_vl
@@ -478,7 +478,7 @@ defaults:
       host: 127.0.0.1
       port: 8000
       base_url: http://127.0.0.1:8000
-      health_endpoint: http://127.0.0.1:8000/health
+      health_endpoint: http://127.0.0.1:8000/live
       provider: provider.core_api
       provider_alias: core-api
       runtime: runtime.core_api

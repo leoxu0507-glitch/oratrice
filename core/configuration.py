@@ -130,6 +130,15 @@ def _expand_values(value: Any, *, source: Path) -> Any:
     return value
 
 
+def default_service_profile(project_root: Path | None = None) -> Path:
+    """Prefer an operator-generated local profile, retaining the legacy default."""
+
+    root = project_root if project_root is not None else Path(__file__).resolve().parents[1]
+    profiles = root / "config" / "profiles"
+    local = profiles / "local.yaml"
+    return local if local.is_file() else profiles / "live.yaml"
+
+
 def _resolve_path(value: Any, *, source_dir: Path, label: str, source: Path) -> Path | None:
     if value is None:
         return None
@@ -167,6 +176,10 @@ def _resolve_path_like_metadata(
         ]
     if isinstance(value, str):
         normalised = key.lower().replace("-", "_")
+        # A profile is a descriptive name, not a file reference. Matching
+        # the substring "file" would turn it into a spurious missing path.
+        if normalised == "profile":
+            return value
         if any(part in normalised for part in _PATH_KEY_PARTS):
             return _resolve_path(value, source_dir=source_dir, label=key, source=source)
     return value
@@ -708,6 +721,7 @@ __all__ = [
     "ProviderConfig",
     "RouteConfig",
     "RuntimeConfig",
+    "default_service_profile",
     "load_config",
     "load_configuration",
 ]

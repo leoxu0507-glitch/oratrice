@@ -42,7 +42,9 @@ def test_order_overrides_generated_secret_and_ui(configuration):
 
     def probe(url, timeout, headers=None):
         probes.append((url, dict(headers or {})))
-        return url == "http://127.0.0.1:8000/live"
+        return url == "http://127.0.0.1:8000/live" and any(
+            runtime["id"] == "runtime.core_api" for runtime, _ in manager.started
+        )
 
     launcher = LauncherOrchestrator(
         configuration,
@@ -63,9 +65,9 @@ def test_order_overrides_generated_secret_and_ui(configuration):
     gemma_args = manager.started[1][0]["args"]
     assert gemma_args[gemma_args.index("-ngl") + 1] == "0"
     gateway = manager.started[2][0]
-    assert gateway["executable"] == Path(
-        r"D:\AI\infrastructure\litellm\.venv-m7-03\Scripts\litellm.exe"
-    )
+    assert gateway["executable"] == (
+        PROFILE.parents[2].parent.parent / "infrastructure/litellm/.venv-m7-03/Scripts/litellm.exe"
+    ).resolve()
     assert gateway["env"]["ORATRICE_LITELLM_MASTER_KEY"] == "generated-sensitive-value"
     assert "generated-sensitive-value" not in repr(result)
     assert result.ui_status == "OPENED"
