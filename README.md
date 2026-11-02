@@ -2,12 +2,14 @@
 
 [![Portable checks](https://github.com/leoxu0507-glitch/oratrice/actions/workflows/ci.yml/badge.svg)](https://github.com/leoxu0507-glitch/oratrice/actions/workflows/ci.yml)
 ![Python 3.13](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
-![Status](https://img.shields.io/badge/status-v0.1%20degraded-orange)
+![Status](https://img.shields.io/badge/status-v0.2%20candidate%20blocked-orange)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Oratrice is a local-first, provider-neutral AI core for personal assistants.
-It gives desktop pets, Web clients, and command-line tools one stable API while
-keeping local runtimes, model gateways, and opt-in cloud providers replaceable.
+Oratrice is a local-first, provider-neutral core for a personal AI assistant.
+Its bundled Web client supports bounded multi-turn text conversations through
+a stable Core API. Local model runtimes, gateways, and explicitly enabled cloud
+providers stay replaceable behind configuration and adapter contracts. Future
+desktop-pet and command-line frontends can use the same API.
 
 The project is built around one rule: orchestration belongs in the Core, model
 selection belongs in the Router, and model-specific transport belongs behind a
@@ -46,81 +48,37 @@ Desktop pet / Web UI / CLI
 ```
 
 The composition root (`core.application.build_application`) wires concrete
-providers.  Routing is deterministic and cloud fallback is opt-in.
+providers. Policy validation enforces configured capabilities and explicit
+cloud opt-in.
 
-> **Project status:** V0.1 is usable on its validated Windows host, but remains
-> marked **DEGRADED** while launcher process-reaping evidence and hardware
-> headroom are incomplete. See [Project overview](docs/PROJECT-OVERVIEW.md).
+## Current status
 
-## v0.2 candidate (acceptance blocked)
+The latest published release is [v0.1.0](https://github.com/leoxu0507-glitch/oratrice/releases/tag/v0.1.0),
+a pre-release. Current development targets **v0.2**, whose real-use acceptance
+is still **BLOCKED**. The candidate is tracked in [PR #1](https://github.com/leoxu0507-glitch/oratrice/pull/1).
 
-The generated default profile selects the local GPT-OSS text chain and Gemma
-router. Cloud inference is not enabled implicitly; it requires explicit policy
-and credentials. Qwen-VL remains optional and deferred.
+| Area | Delivered and verified scope |
+| --- | --- |
+| Core infrastructure | Typed configuration and registries, provider contracts, decision-only routing, lifecycle management, and stable API boundaries |
+| Local deployment | Separate Core/Gateway environments, generated local-only configuration, offline diagnostics, and the Windows launcher |
+| Web conversation | Recent page-local context, request/context limits, New conversation, busy/error recovery, and keyboard controls |
+| Offline validation | Latest local Python repair gate: **220 passed**; the earlier JavaScript behavior gate: **11 passed**. Candidate CI runs separately on the PR. |
+| Real local use | Clean installation, cold start, browser chat, contextual follow-up, busy recovery, and Ctrl+C cleanup passed in the recorded scope. |
+| Release blockers | Restart failed before readiness. The 30-minute run completed 30 requests, but private commit grew 596.7 MiB without a demonstrated plateau. Real-model window-close acceptance is incomplete. |
 
-- **M9 lifecycle:** shutdown failures retain process ownership, interrupted
-  startup rolls back, Windows supervision covers child processes, and chat and
-  route share an admission slot per API instance. Offline integration and
-  surrogate-process checks passed; real-model restart and normal user-console
-  acceptance remain pending. See the
-  [M9 ledger](docs/validation/M9-RELEASE-SUMMARY.md).
-- **M10 portable installation:** a clean Windows/Python 3.13.5 checkout passed
-  Core and Gateway installation and CheckOnly, strict Doctor, dry-run, and 180
-  offline tests. These are historical M10 results; the v0.2 candidate CI and
-  installation gates still need release-owner results. See [Windows environment
-  setup](docs/architecture/ENVIRONMENT.md) and the
-  [M10 ledger](docs/validation/M10-RELEASE-SUMMARY.md).
-- **M11 recent conversation:** the Web UI sends successful recent turns in
-  page memory, with at most 12 prior messages and a 1536-unit budget (UTF-8
-  content bytes plus 32 framing units per message); replies are capped at 256
-  tokens. Refresh and New conversation reset context. There is no persistence
-  or streaming. The recorded 211-test Python suite, 11 JavaScript behavior
-  checks, and Edge API acceptance used an injected provider; real-model
-  acceptance remains pending. See the
-  [M11 ledger](docs/validation/M11-RELEASE-SUMMARY.md) and
-  [chat contract](docs/architecture/API.md).
+The M12 follow-up explicitly limits the extra RAM-backed prompt cache and
+preserves typed startup diagnostics. Native console close/restart checks
+passed with lightweight surrogate processes. Real-model revalidation of these
+repairs was deferred by the operator, so they do not close the release blockers.
+Qwen-VL and cloud inference remain optional paths with separate acceptance
+requirements.
 
-Real-model chat, Ctrl+C cleanup, and clean installation passed. The required
-restart failed, and process private memory rose during the 30-minute run;
-window-close acceptance remains deferred. Stable v0.2 is blocked. See the
-[v0.2 candidate notes](docs/releases/v0.2.0.md).
-
-- M1: validated YAML configuration, resource registry, local llama.cpp and
-  LiteLLM adapters, and the local-first model profile.
-- M2: one-click Windows launcher with health-gated process ownership and
-  cleanup.
-- M3: declarative routing policy for text/chat, vision/OCR, and complex
-  reasoning candidates.
-- M4: provider-neutral FastAPI boundary with `/chat`, `/route`, and `/health`.
-  The live launcher starts the API after GPT-OSS, Gemma Router, and LiteLLM.
-- M5: offline release gate, runtime alias resolution, profile propagation,
-  liveness semantics, transport-error mapping, and consolidated documentation.
-- M6: explicit release/health contracts, portable launcher discovery, offline
-  doctor, reproducible project-environment bootstrap, and an OpenAI-compatible
-  design boundary.  Its release candidate was historically **BLOCKED** by a
-  broken LiteLLM venv.
-- M7: rebuilt separate project/LiteLLM environments, rewired the live profile,
-  verified every required component, fixed cross-process readiness at the API
-  adapter, and passed the real Launcher → Gemma → LiteLLM → GPT-OSS → Core API
-  chain.  The live required chain is **PASS**; overall M7 is **DEGRADED** only
-  for bounded-regression and tight hardware-headroom caveats.  See the
-  [project overview](docs/PROJECT-OVERVIEW.md).
-- M8: added the bundled thin same-origin Web UI at `/ui/`, made it the
-  launcher-default entry point, hardened LiteLLM payload logging, and made
-  public response model IDs preserve the caller's configured alias instead of
-  exposing an internal transport path.  The M8 functional regression reached
-  `150 passed` on Attempt 2; the final Attempt 3 found one documentation phrase
-  incompatibility, which was corrected without a prohibited fourth run.  The
-  required M8 live feature path is **PASS**.  Overall V0.1 remains
-  **DEGRADED** because Codex ConPTY Ctrl+C closed listeners but did not reap
-  launcher-owned processes. Two bounded handler variants also failed their
-  lightweight ignore-SIGINT harness and were reverted as unverified; only the
-  original Job Object source was shipped in the M8 snapshot. Hardware headroom is small. See the
-  [M8 release summary](docs/validation/M8-RELEASE-SUMMARY.md).
-
-See the [project overview](docs/PROJECT-OVERVIEW.md) for the full milestone
-history, architecture, validation ledger, deferred provider paths, and
-maintenance guidance.
+- [Project overview](docs/PROJECT-OVERVIEW.md): architecture, M1-M12 history,
+  and accepted limitations.
+- [M12 acceptance record](docs/validation/M12-RELEASE-SUMMARY.md): measured
+  results, attempt limits, repairs, and remaining evidence.
+- [v0.2 candidate notes](docs/releases/v0.2.0.md): candidate scope and release
+  checklist.
 
 The default Oratrice UI is the bundled same-origin page at
 `http://127.0.0.1:8000/ui/`.  OpenWebUI remains an optional external UI for a
@@ -160,8 +118,17 @@ The generated profile contains only the local text chain. Its context size
 (2048), single server slot, CPU-first Gemma, GPU layers, and thread settings
 are explicit configuration, not a hardware stability guarantee. Adjust them
 with `--ctx-size`, `--gpt-gpu-layers`, and `--threads` when generating a new
-profile at a different `--output`/`--gateway-output` location. Consult the
-validation ledger before loading large models on a memory-constrained host.
+profile at a different `--output`/`--gateway-output` location. The generated
+GPT-OSS and Gemma runtimes explicitly disable the extra RAM-backed prompt
+cache with `--cache-ram 0`. Use `--prompt-cache-mib N` to opt into a finite
+per-model budget; two runtimes can each use that amount. This does not change
+the Web UI recent-message contract. The flag was checked against llama.cpp
+b9843 (`86b94708f`); use a runtime whose `--help` supports `--cache-ram`.
+Existing generated/copied profiles are not rewritten: add `--cache-ram` and
+`"0"` to both model runtimes' `args`, or generate a new profile at new output
+paths. Consult the validation ledger before loading large models on a
+memory-constrained host. The cache limit does not limit model-weight or GPU
+allocations and is not proof that the real-use memory criterion now passes.
 
 Inspect an existing installation without invoking pip:
 
@@ -191,6 +158,18 @@ services. Closing the browser tab alone leaves the launcher and models running.
 subprocess through the temporary `ORATRICE_CONFIG` environment value, which is
 restored on exit.  A copied profile may point `ui_url` and `ui_health_url` at an
 already-running external UI, but that UI remains outside Oratrice ownership.
+
+A failed runtime reports its target, exception type, runtime state, and exit
+code when available, for example `runtime_state=failed, returncode=23`.
+Exception text, process arguments, and environment values are omitted from
+that summary. For startup diagnosis, keep stdout and stderr in a local log:
+
+```powershell
+.\Start-Oratrice.exe --no-browser *> .\oratrice-startup.log
+```
+
+Treat that local log as private; model/runtime output may contain local paths
+and request metadata. Avoid verbose model or gateway payload logging.
 
 ## Core API
 
@@ -270,7 +249,7 @@ The ordinary pytest suite is designed not to start a process, open a socket,
 load model weights, or contact a cloud endpoint:
 
 ```powershell
-& $env:ORATRICE_PYTHON -m pytest -q
+& .\.venv\Scripts\python.exe -m pytest -q
 node --test tests/web_chat.test.cjs
 ```
 
@@ -278,13 +257,11 @@ The separate M11 JavaScript gate uses Node's built-in runner with inert
 browser/HTTP fakes; no npm packages or frontend build are needed. The running
 Web UI itself requires only a browser. See [Testing](docs/architecture/TESTING.md).
 
-M7's historical full-suite path stopped at the three-attempt boundary with
-`139 passed / 2 failed / 0 errors`; both remaining failures were BOM markers
-removed statically after the limit.  M8 then ran a fresh full-suite path: attempt
-1 reached `149/150` before the M8 boundary fix, and attempt 2 passed `150 tests
-in 2.08s`.  M8 focused checks and live evidence are recorded separately in
-`docs/validation/M8-08-REAL-CHAIN.md`; live requests must not be merged with
-offline pytest counts.
+The latest local repair regression passed 220 Python tests. Historical test
+counts and hardware observations remain in their milestone ledgers. CI reports
+its own exact checkout result; an offline pass does not accept real-model
+restart, shutdown, or sustained memory behavior. See the
+[M12 acceptance record](docs/validation/M12-RELEASE-SUMMARY.md).
 
 For an intentional local model request, use the non-collected helper only
 against a server that you started yourself:

@@ -136,3 +136,107 @@ including a fake that incorrectly treated the UI as already healthy before the
 Core process started. After correcting the expectations and release contract,
 the second full run passed **213 tests in 2.97 seconds**. The JavaScript gate
 passed **11 tests** on its third and final invocation across M11-M12.
+
+
+## Repair follow-up (2026-11-02)
+
+Disposition: **BLOCKED for release; local code and surrogate checks PASS**.
+The operator requested repairs, then explicitly deferred real-model acceptance
+while another application occupied most of the host's RAM and GPU memory.
+No additional real-model launch, restart, or sustained-use run was performed.
+The original three whole-chain attempts and their results above remain intact.
+
+### Findings and changes
+
+- The installed llama.cpp is b9843 (`86b94708f`). Its actual `--help` reports
+  an 8192 MiB default RAM-backed prompt cache per server, with `0` disabling
+  it. The original profiles did not override that budget. This is a confirmed
+  configuration risk, not proof that every observed byte of growth came from
+  that cache. See the [versioned upstream argument implementation](https://github.com/ggml-org/llama.cpp/blob/86b94708f/common/arg.cpp).
+- Generated profiles now pass `--cache-ram 0` to both required model runtimes.
+  The legacy live profile's runtime and service argument lists match this
+  default. `--prompt-cache-mib N` allows an explicit finite per-model budget;
+  negative, boolean, and non-integer Python values are rejected before writing
+  outputs. Existing operator profiles are not overwritten or migrated silently.
+  This budget does not bound model-weight, GPU, or all process allocations.
+- Per-process analysis of the original soak isolates the growth to the two
+  llama-server processes: +286.0 and +309.1 MiB of private commit. The other
+  processes were approximately flat. Total working set fell by 1171.1 MiB.
+  The measurements establish private-commit growth, not a proven memory leak.
+- The launcher previously discarded the typed failure status and exit code.
+  It now snapshots only the trusted runtime state and integer return code,
+  including zero, before cleanup. The CLI shows this metadata along with the
+  failing target and exception type. It does not echo exception text, process
+  arguments, or environment values.
+- The ignored real-acceptance controller now records a separate
+  `<phase>.launcher.log` from stdout/stderr for each cold start and restart.
+  Its previous version is preserved locally. This corrects the missing-output
+  instrumentation; it does not diagnose the historical model restart failure.
+  No verbose token/payload logging was enabled.
+
+### Bounded validation after these changes
+
+All commands below ran from the canonical checkout with its Python 3.13.5
+`.venv\Scripts\python.exe`. They used no real models or cloud inference.
+
+| Path | Attempts | Result and scope |
+| --- | --- | --- |
+| New native console surrogate check: `python -B work/m12-fixes/console_check.py` | 1 | PASS. Actual shipping EXE, hidden classic console, WM_CLOSE, restart, then Ctrl+C. Each cycle reaped the recorded owned process tree and freed its surrogate port before the outer finalizer. An external sibling survived both cycles; the controller then cleaned it separately. Final owned survivors: zero. |
+| Native failed-start diagnostic: `python -B work/m12-fixes/failure_check.py` | 1 | PASS. A tiny runtime exited 23; launcher exited 1 and redirected output identified target, `RuntimeStartError`, `runtime_state=failed`, and `returncode=23`. |
+| Diagnostic in the acceptance controller's console mode: `python -B work/m12-fixes/failure_console_check.py` | 1 | PASS. The same intentional runtime failure with CREATE_NEW_CONSOLE confirmed that redirected diagnostics remain available in the previously unlogged mode. This changes the console/handle condition and is not an unchanged retry. |
+| Focused Python gate | 1 | 27 passed in 3.52 seconds. |
+| Full Python offline regression after code changes | 1 | 220 passed in 9.15 seconds. |
+
+The native close/interrupt exit code was 3221225786 (Windows control-event
+termination). These observations prove reaping within the surrogate scope,
+not that Python graceful cleanup finished or that real-model window close is
+accepted. The Job Object safety mechanism was exercised without modifying
+the native launcher source or binary.
+
+Focused command:
+
+```powershell
+& .\.venv\Scripts\python.exe -B -m pytest -q -p no:cacheprovider --basetemp=work\m12-fixes\tmp\focused-01 tests\test_m10_local_config.py tests\test_m9_launcher_failures.py tests\test_launcher_cli.py tests\test_launcher_orchestrator.py tests\test_m12_readiness_probe.py
+```
+
+Full regression command:
+
+```powershell
+& .\.venv\Scripts\python.exe -B -m pytest -q -p no:cacheprovider --basetemp=work\m12-fixes\tmp\full-01
+```
+
+The Web UI code and JavaScript tests were unchanged; the historical 11-pass
+JavaScript result was not rerun. Baseline candidate commit `416a537` has
+[successful CI](https://github.com/leoxu0507-glitch/oratrice/actions/runs/41444082603).
+At the time of this repair run, the changes were uncommitted and had not been
+checked by CI. Subsequent source publication and exact-checkout CI results are
+tracked in [PR #1](https://github.com/leoxu0507-glitch/oratrice/pull/1).
+No v0.2 tag, archive, checksum set, or release is created from this follow-up.
+
+### Remaining acceptance
+
+The real-model restart cause is still unknown. A subsequent explicitly
+scheduled hardware check must use captured launcher/model diagnostics,
+verify the generated profile actually contains the new cache budget, and
+measure whether private commit plateaus under a fixed bounded workload.
+Real-model window close/restart must also be observed. Keep the original
+attempt ledger; do not reuse the old unlogged run as successful evidence.
+The operator's deferral applies to these checks, so they remain unaccepted.
+
+
+## Source and documentation synchronization (2026-11-02)
+
+The maintainer authorized publication of the current source and English
+project material through the existing candidate PR. README now separates the
+current implementation, recorded checks, and release blockers; the project
+overview covers M1-M12; Changelog separates additions, fixes, and validation.
+The runtime/configuration repairs and their regression tests are included in
+the source update. Stellamurus remains first author and Codex the second AI
+engineering collaborator. The v0.1.0 tag and published history are preserved.
+
+The PR checks are the authority for CI on the submitted head. Local repair
+results above and historical candidate CI do not substitute for those checks.
+No real models were started during this documentation/publication task.
+Real-model restart, post-repair memory stability, and real-model window close
+remain unaccepted, so source synchronization does not authorize a stable v0.2
+release or close the M12 acceptance blockers.
