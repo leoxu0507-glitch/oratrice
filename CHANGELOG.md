@@ -3,16 +3,16 @@
 All notable changes to Oratrice are documented in this file. The project
 follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - M13-M16 candidate
+## [0.3.0] - 2026-11-03
 
-### Release closeout
+### Release scope
 
-- M13-M15 are integrated into `main`. M16 is preparing the v0.3.0 candidate;
-  installation, integrated real-use acceptance, the exact-source CI run, and
-  package checksums remain pending until recorded in the
-  [M16 acceptance ledger](docs/validation/M16-RELEASE-SUMMARY.md).
-- v0.3.0 adds no new assistant behavior. The existing v0.2.0 release remains
-  current until the candidate passes its documented gates and is published.
+- v0.3.0 includes the M13-M15 conversation, streaming, and status-companion
+  work. It adds no vision, cloud-default, voice, Memory, Tool, or Agent behavior.
+- M16 local acceptance passed on the recorded Windows host. The immutable
+  GitHub tag and release assets are the authority for the exact source, CI run,
+  source archive manifest, and checksum. The published v0.2.0 record is
+  preserved.
 
 ### Added
 
@@ -48,6 +48,69 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Validation
 
+- M16 passed bounded real local GPT-OSS/Gemma/LiteLLM/Core acceptance on
+  Windows 11 (build 26200, Python 3.13.5, Tk 8.6, LiteLLM 1.74.3, and
+  llama.cpp b9843). Core/Gateway setup, local configuration, and strict Doctor
+  passed. Cold readiness was 42.239 s; restart readiness was 37.724 s.
+- One 1800.45-second session completed 30 sequential local HTTP requests,
+  including 15 codeword question/follow-up pairs, all HTTP 200. Response
+  latency was 11.949 s median / 20.637 s maximum. Across 120 resource samples,
+  Core tracked memory rose 457.6 MiB overall and 8.4 MiB in the final third;
+  the pet rose 1.8 MiB. This met the predeclared 512 / 256 / 32 MiB bounds for
+  that run and does not establish leak-free continuous operation. Available
+  physical RAM reached 125.7 MiB and was observed without aborting. GPU use
+  ranged from 6952 to 7650 MiB.
+- Runtime files used for the real03 session matched baseline
+  `1e91caf1699b278c4c2a9b4bd39a3f8945f740b9`; the earlier packaging/tests/docs
+  candidate was `fa69ab6bfeeae49a578f4276e706637ffbbcf53e`.
+- The recorded local model SHA-256 values are GPT-OSS
+  `75acd89545d50126692df2116bc3fdf700408b4be1d74d58e8eed13bca028f17` and
+  Gemma-3n-E4B
+  `ef5c72473575ce0b162c0289f5f3ef983ca99fc2f2272efd5871f6bccc3fb49a`.
+- Separate real Edge 156 integration covered five UI workflows and five chat
+  requests, including Stop while local generation continued; there were no
+  JavaScript runtime errors. First visible text took 15.573 s; the response
+  completed in 18.261 s. A sixth native Tk Open chat workflow called Windows'
+  default-browser opener successfully; its exact newly opened tab was not
+  inspected. The actual web page was exercised separately in Edge through CDP.
+- A v0.3.0 archive was extracted into a path containing spaces. On Windows
+  PowerShell 5.1.26100.9711, Core/Gateway dependency checks, imports and version
+  checks, local configuration, strict Doctor, and launcher dry-run passed. The
+  Gateway environment was fresh; the Core environment reused the partial
+  environment created by attempt 1, so this was not a zero-state Core install.
+- The default launcher smoke reached ready state. The UI and four JavaScript
+  assets returned HTTP 200; real local chat returned `PACKAGE_OK` and streaming
+  returned `STREAM_OK`. Closing the Tk pet reaped both pet processes while Core
+  stayed ready. Closing the launcher console reaped 11 owned identities and
+  freed ports 8000, 8080, 8090, and 4000 before the outer guard.
+- The setup helper's native-command probe passed: a zero exit with stderr was
+  accepted, exit code 7 was preserved, spaced arguments were passed intact,
+  and the caller's `ErrorActionPreference` was restored. Seven setup contract
+  tests passed after correcting one stale assertion from the first run.
+- A 75-file operational comparison matched the release-candidate Git blobs
+  except for normal Git line-ending normalization. Core, Router, Provider,
+  runtime, and frontend implementation files remained unchanged from baseline
+  `1e91caf1699b278c4c2a9b4bd39a3f8945f740b9`; release preparation changed
+  setup, packaging, tests, and documentation.
+- Ctrl+C cleanup after the cold run and final cleanup after restart reaped all
+  owned process identities and freed required ports before outer cleanup.
+  Restarted chat returned the expected marker. Closing the pet left Core
+  available. After exit, available physical RAM was 10842.0 MiB and GPU use
+  was 670 MiB, versus 6824.9 MiB and 912 MiB at the recorded baseline.
+- A separate manually overridden 64-token request returned HTTP 200 with an
+  empty response. The documented 256-token default completed successfully in
+  the subsequent acceptance run. The cause of the low-budget result was not
+  established; this record makes no claim about its internal reasoning path.
+- The packaging check's first attempt rejected the public `SECRETS.md`
+  filename; the corrected second attempt passed. Its focused 27-test gate and
+  candidate CI passed on `fa69ab6bfeeae49a578f4276e706637ffbbcf53e`:
+  [399 Python and 63 JavaScript tests](https://github.com/leoxu0507-glitch/oratrice/actions/runs/41636332951).
+- The first install attempt completed Core dependency installation, but a
+  harmless pip stderr notice caused the PowerShell 5 wrapper to report an
+  error. The native capture helper was corrected and its zero/nonzero exit,
+  stderr, argument quoting, and preference-restoration behavior were verified.
+  Attempt 2 completed setup and smoke; it reused attempt 1's partial Core
+  environment while creating the Gateway environment fresh.
 - M15 local gates passed 86 targeted Python tests, the full 372-test suite,
   compilation, and 63 JavaScript tests. A thousand-failure offline test checks
   backoff without counter overflow. Six actual Tk/Edge/API workflows passed
@@ -77,8 +140,8 @@ follows [Semantic Versioning](https://semver.org/).
 - M13 did not rerun model performance, lifecycle, or sustained-use acceptance.
   The v0.2.0 real-model record remains separate; published tags are unchanged.
 
-M13-M15 feature and validation notes above describe their recorded development
-checks. They do not substitute for the exact-candidate M16 acceptance.
+M13-M15 are the v0.3.0 feature scope. Their focused development checks and the
+integrated M16 local acceptance are recorded separately above.
 
 ## [0.2.0] - 2026-11-03
 

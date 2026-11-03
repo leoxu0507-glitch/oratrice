@@ -34,9 +34,12 @@ def test_gateway_uses_an_opt_in_environment_and_unconstrained_requirements() -> 
 
     # Core retains its constraints command; Gateway installs only its own
     # requirements file and never inherits the Core constraint set.
-    assert "& $venvPython -m pip install -r $RequirementsPath 2>&1" in source
     assert (
-        "& $venvPython -m pip install -r $RequirementsPath -c $ConstraintsPath 2>&1"
+        'Invoke-NativeCapture -Executable $venvPython -Arguments @("-m", "pip", "install", "-r", $RequirementsPath)'
+        in source
+    )
+    assert (
+        'Invoke-NativeCapture -Executable $venvPython -Arguments @("-m", "pip", "install", "-r", $RequirementsPath, "-c", $ConstraintsPath)'
         in source
     )
 
@@ -84,8 +87,8 @@ def test_check_only_stays_pip_free_and_normal_setup_runs_pip_check() -> None:
     check_only_block = source[check_only_start:check_only_end]
 
     assert "-m pip" not in check_only_block
-    install_position = source.index("-m pip install -r $RequirementsPath")
-    check_position = source.index("-m pip check", install_position)
+    install_position = source.index('"-m", "pip", "install", "-r", $RequirementsPath')
+    check_position = source.index('"-m", "pip", "check"', install_position)
     package_position = source.index(
         "Test-RequiredPackages -Interpreter $venvPython", check_position
     )

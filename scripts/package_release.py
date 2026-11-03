@@ -100,10 +100,7 @@ class GitCommand(Protocol):
 
 
 class GitTree(Protocol):
-    commit: str
-    tree: str
-
-    def files(self) -> Mapping[str, tuple[int, bytes, str]]: ...
+    def read_tree(self, revision: str) -> Mapping[str, object]: ...
 
 
 class GitRepository:

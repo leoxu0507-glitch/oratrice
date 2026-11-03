@@ -53,6 +53,24 @@ function Format-NativeFailure {
     return $first
 }
 
+function Invoke-NativeCapture {
+    param(
+        [Parameter(Mandatory = $true)][string]$Executable,
+        [Parameter(Mandatory = $true)][string[]]$Arguments
+    )
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $output = @(& $Executable @Arguments 2>&1)
+        $exitCode = [int]$LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    return [pscustomobject]@{ Output = $output; ExitCode = $exitCode }
+}
+
 function Resolve-AbsolutePath {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -101,12 +119,12 @@ function Resolve-PythonPath {
 
     # Ask the Windows launcher for its available Python 3 interpreter.  This
     # does not install a runtime and leaves PATH, registry, and policy intact.
-    $probeOutput = @(& $pyCommand.Source -3 -c "import sys; print(sys.executable)" 2>&1)
-    if ($LASTEXITCODE -ne 0) {
-        throw "py.exe could not select a Python 3 interpreter: $(Format-NativeFailure -Output $probeOutput)"
+    $probe = Invoke-NativeCapture -Executable $pyCommand.Source -Arguments @("-3", "-c", "import sys; print(sys.executable)")
+    if ($probe.ExitCode -ne 0) {
+        throw "py.exe could not select a Python 3 interpreter: $(Format-NativeFailure -Output $probe.Output)"
     }
     $lines = @(
-        $probeOutput |
+        $probe.Output |
             ForEach-Object { if ($null -ne $_) { ([string]$_).Trim().Trim('"') } } |
             Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
     )
@@ -126,14 +144,12 @@ function Get-PythonVersion {
         [Parameter(Mandatory = $true)][string]$Description
     )
 
-    $output = @(
-        & $Interpreter -c "import sys; print('%d.%d.%d' % sys.version_info[:3])" 2>&1
-    )
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Description could not run '$Interpreter': $(Format-NativeFailure -Output $output)"
+    $native = Invoke-NativeCapture -Executable $Interpreter -Arguments @("-c", "import sys; print('%d.%d.%d' % sys.version_info[:3])")
+    if ($native.ExitCode -ne 0) {
+        throw "$Description could not run '$Interpreter': $(Format-NativeFailure -Output $native.Output)"
     }
     $versionText = @(
-        $output |
+        $native.Output |
             ForEach-Object { if ($null -ne $_) { ([string]$_).Trim() } } |
             Where-Object { $_ -match '^\d+\.\d+\.\d+$' }
     )
@@ -195,9 +211,9 @@ function New-OratriceVenv {
         throw "The parent directory for -VenvPath does not exist: '$parent'. Create it explicitly, then retry."
     }
     Write-Host "Creating virtual environment at $ResolvedVenvPath using $InterpreterSource ($BaseInterpreter)."
-    $output = @(& $BaseInterpreter -m venv $ResolvedVenvPath 2>&1)
-    if ($LASTEXITCODE -ne 0) {
-        throw "Python venv creation failed at '$ResolvedVenvPath': $(Format-NativeFailure -Output $output)"
+    $native = Invoke-NativeCapture -Executable $BaseInterpreter -Arguments @("-m", "venv", $ResolvedVenvPath)
+    if ($native.ExitCode -ne 0) {
+        throw "Python venv creation failed at '$ResolvedVenvPath': $(Format-NativeFailure -Output $native.Output)"
     }
 }
 
@@ -344,13 +360,13 @@ function Test-RequiredPackages {
         else {
             $code = "import importlib, importlib.metadata as metadata; importlib.import_module('$module'); print(metadata.version('$name'))"
         }
-        $output = @(& $Interpreter -B -c $code 2>&1)
-        if ($LASTEXITCODE -ne 0) {
+        $native = Invoke-NativeCapture -Executable $Interpreter -Arguments @("-B", "-c", $code)
+        if ($native.ExitCode -ne 0) {
             $failures += "$name is missing or cannot be imported"
             continue
         }
         $versions = @(
-            $output |
+            $native.Output |
                 ForEach-Object { if ($null -ne $_) { ([string]$_).Trim() } } |
                 Where-Object { $_ -match '^\d+(?:\.\d+){0,3}(?:[-+].*)?$' }
         )
@@ -418,19 +434,19 @@ try {
     # No global pip, PATH mutation, execution-policy change, or secret generation occurs.
     Write-Host "Installing requirements with the selected virtual-environment interpreter."
     if ($Gateway) {
-        $pipOutput = @(& $venvPython -m pip install -r $RequirementsPath 2>&1)
+        $pipResult = Invoke-NativeCapture -Executable $venvPython -Arguments @("-m", "pip", "install", "-r", $RequirementsPath)
     }
     else {
         # Operator-visible Core command: <venv>\Scripts\python.exe -m pip install -r requirements.txt -c constraints.txt.
-        $pipOutput = @(& $venvPython -m pip install -r $RequirementsPath -c $ConstraintsPath 2>&1)
+        $pipResult = Invoke-NativeCapture -Executable $venvPython -Arguments @("-m", "pip", "install", "-r", $RequirementsPath, "-c", $ConstraintsPath)
     }
-    if ($LASTEXITCODE -ne 0) {
-        throw "Dependency installation failed: $(Format-NativeFailure -Output $pipOutput)"
+    if ($pipResult.ExitCode -ne 0) {
+        throw "Dependency installation failed: $(Format-NativeFailure -Output $pipResult.Output)"
     }
     Write-Host "Checking installed dependency consistency with pip check."
-    $pipCheckOutput = @(& $venvPython -m pip check 2>&1)
-    if ($LASTEXITCODE -ne 0) {
-        throw "Installed dependencies are inconsistent: $(Format-NativeFailure -Output $pipCheckOutput)"
+    $pipCheck = Invoke-NativeCapture -Executable $venvPython -Arguments @("-m", "pip", "check")
+    if ($pipCheck.ExitCode -ne 0) {
+        throw "Installed dependencies are inconsistent: $(Format-NativeFailure -Output $pipCheck.Output)"
     }
     Write-Host "Dependency installation completed. Checking required imports and versions."
     Test-RequiredPackages -Interpreter $venvPython -Requirements $requirements

@@ -365,7 +365,7 @@ ASGI-consumer checks in the offline suites unless an explicit live fault test
 has been planned. Label injected-provider browser checks separately from
 actual-model evidence. Share the three-attempt budget across helpers and
 preserve failed attempts. The recorded local M14 results are in the
-[project overview](../PROJECT-OVERVIEW.md#m14-incremental-replies-and-truthful-stop-behavior-implemented-unreleased).
+[project overview](../PROJECT-OVERVIEW.md#m14-incremental-replies-and-truthful-stop-behavior-included-in-v030).
 
 ## M15 status companion and Web UI
 
@@ -394,7 +394,7 @@ No poll should invoke provider health inference or a chat/route operation.
 Distinguish an injected-provider process fixture from real-model checks, and
 record browser-opener injection separately from testing the OS browser
 association. Preserve setup failures within the shared three-attempt budget.
-See the [M15 record](../PROJECT-OVERVIEW.md#m15-desktop-pet-as-a-status-surface-implemented-unreleased)
+See the [M15 record](../PROJECT-OVERVIEW.md#m15-desktop-pet-as-a-status-surface-included-in-v030)
 and [companion guide](../../frontends/pet/README.md). The installed OpenPets
 3.2.1 plugin host's loopback restriction is recorded as deferred; these steps
 validate the operator-selected standalone companion.
