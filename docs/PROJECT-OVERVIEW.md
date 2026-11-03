@@ -62,7 +62,7 @@ The main boundaries are:
 | M9 | Truthful lifecycle shutdown, interrupted-start rollback, Windows process supervision, per-instance chat/route admission | Historical M9 result: offline integration and surrogate-process checks PASS; real-model restart and user-console acceptance were deferred at that milestone |
 | M10 | Generated local configuration, isolated Gateway installation, strict offline diagnostics, portable CI definition | Historical M10 result: clean Windows/Python 3.13.5 install checks and 180 offline tests PASS; remote CI was not part of that validation and hardware stability remained deferred |
 | M11 | Bounded recent conversation, request limits, reset and recoverable UI behavior | Historical M11 result: 211 Python tests and 11 JavaScript checks passed; Edge acceptance used an injected provider; real-model acceptance was deferred |
-| M12 | Real-use acceptance, liveness-probe repair, disabled default RAM prompt cache, and startup-failure diagnostics | Installation/cold-start/chat/browser/Ctrl+C checks PASS within recorded scope; local full Python regression `220 passed`. Real-model restart and soak acceptance BLOCKED; repair not verified with real models. [M12 ledger](validation/M12-RELEASE-SUMMARY.md) |
+| M12 | Real-use acceptance, cache/diagnostic repairs, reproducible evidence tooling, Windows listener-table checks, and automatic GPU fitting | Fresh installation and offline gates PASS (`276` Python + `11` JS); resumed real validation stopped at the three-attempt cap for resource headroom. Restart, window-close, sustained-use, and v0.2 release remain BLOCKED. [M12 ledger](validation/M12-RELEASE-SUMMARY.md) |
 
 ## Current request path
 
@@ -78,6 +78,14 @@ explicit configuration choice and credentials; the optional cloud example is
 not merged into the default profile.
 
 ## Validation snapshot
+
+- On 2026-11-03 the fresh isolated candidate passed `276` Python tests (one
+  dependency warning) and `11` JavaScript tests. Exact code commit `ee1c4c5`
+  passed [CI run 6](https://github.com/leoxu0507-glitch/oratrice/actions/runs/41567738093).
+  Three resumed real attempts are recorded separately. The last loaded both
+  models but stopped before full Core readiness at `309.3 MiB` available RAM.
+  Emergency finalization reaped observed owned processes and freed all required
+  ports; normal shutdown/restart and the post-repair soak remain unaccepted.
 
 - Historical M9 integrated offline suite: `163 passed`; native process
   supervision used surrogate child processes. At M9, real-model restart and
@@ -97,7 +105,7 @@ not merged into the default profile.
   model launch, restart, or sustained-use run followed that change. Native
   window-close/restart/cleanup checks using surrogate processes passed; they
   do not establish real-model behavior.
-- The local full Python regression after repairs passed `220` tests. The
+- The November 2 local full Python regression after repairs passed `220` tests. The
   JavaScript `11 passed` result is from an earlier gate and was not rerun
   locally for the repair follow-up.
   Baseline commit `416a537` passed [GitHub CI](https://github.com/leoxu0507-glitch/oratrice/actions/runs/41444082603); exact-checkout checks for current source are tracked in [PR #1](https://github.com/leoxu0507-glitch/oratrice/pull/1).
@@ -137,10 +145,12 @@ or additional service is needed just to start the next milestone.
 
 ### M12 closeout: reproducible local acceptance and v0.2
 
-Real-model validation remains paused at the operator's request. The original
-three-attempt ledger remains intact. A repair-validation pass requires an
-explicitly resumed hardware window, a changed hypothesis, and a recorded
-shared attempt budget; changing the harness name does not reset that budget.
+The operator resumed real-model validation on 2026-11-03. Three resumed
+attempts were completed and stopped; the original three-attempt ledger also
+remains intact. Current status: **R1/R2 preparation PASS; R3 BLOCKED; R4
+DEFERRED; R5 prepared but release BLOCKED**. Further real validation needs a
+materially changed resource window and a reviewed plan; changing a harness
+name does not reset either recorded attempt ledger.
 
 | Task | Scope and owner boundary | Completion evidence |
 | --- | --- | --- |
@@ -156,7 +166,9 @@ profile, private phase logs, read-only identity/resource observations, and
 separate cleanup results. The targeted fake-only gate passed `34` tests; the
 full local offline Python suite passed `254` on 2026-11-03. Windows calls were
 validated with fake APIs, not a native process acceptance run. No real model
-or service was started. M12-R2 through R5 and the release blockers remain open.
+or service was started during that R1-only task. The subsequent R2 installation
+and configuration checks passed; R3/R4 hardware gates and the v0.2 release remain
+open after the separately recorded resumed attempts.
 
 The [M12 ledger](validation/M12-RELEASE-SUMMARY.md) remains the evidence source.
 The [live testing guide](architecture/LIVE_TESTING.md) describes the existing
