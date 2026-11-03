@@ -90,6 +90,13 @@ class FakeNative:
     def __init__(self):
         self.current = {}
         self.tree = []
+        self.listener_rows = []
+        self.listener_error = None
+
+    def listener_snapshot(self):
+        if self.listener_error is not None:
+            raise self.listener_error
+        return [dict(row) for row in self.listener_rows]
 
     def memory_snapshot(self):
         return {"rss_bytes": 1234}
@@ -486,4 +493,68 @@ def test_old_cleanup_cannot_authorize_a_third_launcher_after_restart_two(project
     assert record["tracked"] == [
         {"pid": root1["pid"], "created": root1["created"]},
         {"pid": root2["pid"], "created": root2["created"]},
+    ]
+
+
+def _install_listener_native(monkeypatch, native):
+    def forbidden_socket(*args, **kwargs):
+        raise AssertionError("listener evidence must use the fake TCP-table snapshot")
+
+    monkeypatch.setattr(acceptance, "_windows", lambda: native)
+    monkeypatch.setattr(socket, "create_connection", forbidden_socket)
+
+
+@pytest.mark.parametrize(
+    ("url", "address", "state"),
+    [
+        ("http://127.0.0.1:9123/health", "127.0.0.1", "listening"),
+        ("http://127.0.0.1:9123/health", "0.0.0.0", "listening"),
+        ("http://127.0.0.1:9123/health", "::", "listening"),
+        ("http://[::1]:9123/health", "::1", "listening"),
+        ("http://[::1]:9123/health", "::", "listening"),
+        ("http://localhost:9123/health", "127.0.0.1", "listening"),
+        ("http://localhost:9123/health", "0.0.0.0", "listening"),
+        ("http://localhost:9123/health", "::1", "listening"),
+        ("http://localhost:9123/health", "::", "listening"),
+        ("http://127.0.0.1:9123/health", "127.0.0.2", "free"),
+        ("http://127.0.0.1:9123/health", "192.168.1.40", "free"),
+        ("http://[::1]:9123/health", "2001:db8::40", "free"),
+    ],
+)
+def test_listener_snapshot_matches_loopback_family_and_wildcards(
+    monkeypatch, url, address, state
+):
+    native = FakeNative()
+    native.listener_rows = [{"address": address, "port": 9123, "pid": 4321}]
+    _install_listener_native(monkeypatch, native)
+
+    rows = acceptance.listeners([{"target": "api", "url": url}])
+
+    assert rows == [{"target": "api", "state": state}]
+
+
+def test_listener_snapshot_reports_free_for_empty_or_other_port(monkeypatch):
+    native = FakeNative()
+    _install_listener_native(monkeypatch, native)
+    endpoint = {"target": "api", "url": LOCAL_ENDPOINT}
+    assert acceptance.listeners([endpoint]) == [{"target": "api", "state": "free"}]
+
+    native.listener_rows = [{"address": "127.0.0.1", "port": 9124, "pid": 4321}]
+    assert acceptance.listeners([endpoint]) == [{"target": "api", "state": "free"}]
+
+
+def test_listener_snapshot_backend_oserror_reports_unknown_for_all_endpoints(monkeypatch):
+    native = FakeNative()
+    native.listener_error = OSError("synthetic TCP table failure")
+    _install_listener_native(monkeypatch, native)
+    endpoints = [
+        {"target": "ipv4", "url": "http://127.0.0.1:9123/health"},
+        {"target": "ipv6", "url": "http://[::1]:9123/health"},
+    ]
+
+    rows = acceptance.listeners(endpoints)
+
+    assert rows == [
+        {"target": "ipv4", "state": "unknown"},
+        {"target": "ipv6", "state": "unknown"},
     ]

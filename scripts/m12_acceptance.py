@@ -13,7 +13,6 @@ import json
 import os
 from pathlib import Path
 import re
-import socket
 import sys
 from urllib.parse import urlsplit
 
@@ -117,18 +116,29 @@ def load(run: Path) -> tuple[Path, dict]:
 
 
 def listeners(endpoints: list[dict]) -> list[dict]:
-    """TCP listener observations only; this is not health or readiness."""
+    """Observe OS TCP listeners; a refused-connect probe is unreliable on Windows."""
+    try:
+        rows = _windows().listener_snapshot()
+    except OSError:
+        return [{"target": item["target"], "state": "unknown"} for item in endpoints]
     results = []
     for endpoint in endpoints:
         parsed = urlsplit(_local_url(endpoint["url"]))
-        try:
-            with socket.create_connection((parsed.hostname, parsed.port or 80), timeout=0.5):
-                state = "listening"
-        except ConnectionRefusedError:
-            state = "free"
-        except OSError:
-            state = "unknown"
-        results.append({"target": endpoint["target"], "state": state})
+        host, port = parsed.hostname, parsed.port or 80
+        occupied = False
+        for row in rows:
+            if row["port"] != port:
+                continue
+            address = ipaddress.ip_address(row["address"])
+            if host == "localhost":
+                matches = address.is_loopback or address.is_unspecified
+            else:
+                requested = ipaddress.ip_address(host)
+                # A v6 wildcard may also be a dual-stack listener; be conservative.
+                matches = (address == requested or str(address) == "::" or
+                           (address.is_unspecified and address.version == requested.version))
+            occupied = occupied or matches
+        results.append({"target": endpoint["target"], "state": "listening" if occupied else "free"})
     return results
 
 

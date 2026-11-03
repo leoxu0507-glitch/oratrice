@@ -219,7 +219,9 @@ startup, inference, signaling, or termination.
 if ($LASTEXITCODE -ne 0) { throw 'Ports are occupied or unknown; do not launch.' }
 ```
 
-A listener observation is not a health/readiness check. If a required endpoint
+Listener observations read the Windows IPv4/IPv6 owner-PID TCP tables; they
+do not try connecting to closed ports. A listener observation is not a
+health/readiness check. If a required endpoint
 is already listening, identify its owner and defer the cold-start check;
 leave that external service intact. For this owned-process acceptance path,
 do not reuse pre-existing services.
