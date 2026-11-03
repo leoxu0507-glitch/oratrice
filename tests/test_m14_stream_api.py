@@ -385,14 +385,19 @@ def test_asgi_request_cancellation_cleans_up_owned_response_tasks():
     response = BoundedSSEStreamingResponse(session, send_wait_seconds=1)
 
     async def cancel_request():
+        asgi_started = asyncio.Event()
+
         async def receive():
             await asyncio.Future()
 
-        async def send(_message):
-            return None
+        async def send(message):
+            if message["type"] == "http.response.start":
+                asgi_started.set()
 
         scope = {"type": "http", "method": "POST", "path": "/chat/stream", "headers": []}
         request_task = asyncio.create_task(response(scope, receive, send))
+        # A ready worker alone does not prove the response task has run.
+        await asyncio.wait_for(asgi_started.wait(), timeout=1)
         assert await asyncio.to_thread(entered.wait, 1)
         request_task.cancel()
         with suppress(asyncio.CancelledError):
