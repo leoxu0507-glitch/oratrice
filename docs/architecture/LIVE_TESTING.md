@@ -332,3 +332,69 @@ status, and safe error type/message. The JSON always retains
 hardware review, scenario acceptance, defect classification, and release
 checks. Neither an operator `PASS` checkpoint nor a surrogate cleanup result
 changes the release disposition automatically.
+
+## M14 streaming and delivery-only Stop
+
+This is a separate explicit check against an already configured local stack.
+It does not require cloud credentials or change the 256-token reply cap.
+Use the same profile and process-identity preparation as the lifecycle
+procedure above; leave unrelated services and applications untouched.
+
+1. Start the supplied profile, wait for actual readiness, and open `/ui/`.
+   Verify ordinary chat still works with streaming off.
+2. Enable **Stream replies as they arrive** and ask for a short multi-sentence
+   answer. Record request start, first visible text, and completion separately.
+   Text must appear before completion; there is no first-text latency guarantee.
+3. Ask a follow-up. Inspect the request if needed: only prior successful
+   role/content pairs enter history, with the unchanged context limits.
+4. Start another bounded reply and select **Stop reply** while it is active.
+   Check that the draft survives and visible partial text is labeled. It must
+   not enter saved/exported history or the next request's context. The UI
+   must say model work may continue. An immediate overlapping `/chat` or
+   `/route` is expected to be busy while upstream execution is still active.
+5. After that operation ends, explicitly retry or send a fresh short request.
+   Confirm recovery without resending the interrupted turn as history. A hung
+   provider can remain busy beyond the delivery deadline; do not add another
+   worker or bypass admission to make this check pass.
+6. Exit the owned launcher, verify tracked PID/creation-time identities and
+   listeners separately, restart, and complete another streamed reply. Record
+   cleanup before any manual intervention or outer test guard.
+
+Keep provider-error, premature EOF, deadline, request cancellation, and slow
+ASGI-consumer checks in the offline suites unless an explicit live fault test
+has been planned. Label injected-provider browser checks separately from
+actual-model evidence. Share the three-attempt budget across helpers and
+preserve failed attempts. The recorded local M14 results are in the
+[project overview](../PROJECT-OVERVIEW.md#m14-incremental-replies-and-truthful-stop-behavior-implemented-unreleased).
+
+## M15 status companion and Web UI
+
+Start Core using the supplied profile, then launch the independent companion
+from the checkout with `Start-Oratrice-Pet.cmd` or
+`& .\.venv\Scripts\python.exe -m frontends.pet`. Use `--base-url` for another
+loopback origin. Keep conversation in the Web UI and observe `/status`:
+
+1. With Core absent, confirm Offline and an available Close control. Start
+   Core separately and allow for the capped connection backoff. Ready must
+   reflect the configured read-only readiness source.
+2. Select **Open chat** and confirm the local `/ui/` URL. Both views should
+   reflect a model operation as busy. Stop display in the Web UI; the pet
+   must remain Working while Core continues the operation.
+3. Confirm a failed operation is visible and a later successful operation
+   restores the status. Closing or losing the pet must leave Core and its
+   active request independent of that frontend.
+4. Restart the API using only processes owned by the check. Both frontends
+   must show connection loss and recover without launching additional Core
+   or model instances. Check owned identities and listeners after exit.
+5. Exercise the standalone source bundle from a fresh directory, including a
+   path with spaces, using an existing Tk-enabled Python. Verify its manifest,
+   one-click launch, accessible controls, and normal window close.
+
+No poll should invoke provider health inference or a chat/route operation.
+Distinguish an injected-provider process fixture from real-model checks, and
+record browser-opener injection separately from testing the OS browser
+association. Preserve setup failures within the shared three-attempt budget.
+See the [M15 record](../PROJECT-OVERVIEW.md#m15-desktop-pet-as-a-status-surface-implemented-unreleased)
+and [companion guide](../../frontends/pet/README.md). The installed OpenPets
+3.2.1 plugin host's loopback restriction is recorded as deferred; these steps
+validate the operator-selected standalone companion.

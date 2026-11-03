@@ -23,6 +23,27 @@
         </div>
       </header>
 
+      <section class="conversation-controls" aria-label="Conversation history and export">
+        <div class="history-preference">
+          <label><input id="save-conversations" type="checkbox"> Automatically save chats in this browser</label>
+          <p class="hint">Off by default. Turning off stops saving; existing records remain until deleted. Browser storage is not a backup.</p>
+          <label><input id="stream-replies" type="checkbox"> Stream replies as they arrive</label>
+          <p class="hint">Streaming depends on provider support. Stop ends display; model work may continue.</p>
+        </div>
+        <div class="history-actions">
+          <label class="sr-only" for="saved-conversations">Saved conversations</label>
+          <select id="saved-conversations"><option value="">No saved conversations</option></select>
+          <button id="open-conversation" class="secondary" type="button">Open</button>
+          <button id="delete-conversation" class="secondary" type="button">Delete saved</button>
+          <button id="clear-conversations" class="secondary" type="button">Clear saved</button>
+        </div>
+        <div class="export-actions">
+          <button id="export-markdown" class="secondary" type="button">Export Markdown</button>
+          <button id="export-json" class="secondary" type="button">Export JSON</button>
+        </div>
+        <p id="storage-status" class="storage-status" role="status">Page-only mode. Saving is off.</p>
+      </section>
+
       <section id="conversation" class="conversation" aria-label="Conversation" aria-live="polite" aria-busy="false">
         <div id="empty-state" class="empty-state">
           <p class="empty-mark" aria-hidden="true">✦</p>
@@ -33,15 +54,22 @@
 
       <p id="notice" class="notice" role="status" aria-live="polite"></p>
 
+      <p id="context-budget" class="budget-status"></p>
+      <p id="budget-help" class="hint budget-help">The budget counts UTF-8 text and message allowance, not model tokens. Long text, code, and non-English text may fill it sooner.</p>
+
       <form id="chat-form" class="composer" aria-label="Send a message">
         <label class="sr-only" for="message-input">Message</label>
-        <textarea id="message-input" rows="3" maxlength="1536" placeholder="Type a message... (Enter to send, Shift+Enter for a new line)" autocomplete="off" spellcheck="true"></textarea>
+        <textarea id="message-input" rows="3" maxlength="1536" placeholder="Type a message... (Enter to send, Shift+Enter for a new line)" autocomplete="off" spellcheck="true" aria-describedby="context-budget budget-help"></textarea>
         <div class="composer-footer">
-          <span class="hint">History stays in this page and resets when you reload</span>
+          <span class="hint">Page-only unless local saving is enabled; exports are your backup</span>
+          <button id="stop-button" class="secondary" type="button" hidden disabled>Stop reply</button>
           <button id="send-button" type="submit">Send</button>
         </div>
       </form>
     </main>
+    <script src="./conversation-data.js"></script>
+    <script src="./conversation-store.js"></script>
+    <script src="./stream-client.js"></script>
     <script type="module" src="./app.js"></script>
   </body>
 </html>

@@ -6,13 +6,18 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 const { TextEncoder } = require("node:util");
+const { TextDecoder } = require("node:util");
+const { ReadableStream } = require("node:stream/web");
 
 const APP_SOURCE = fs.readFileSync(
   path.join(__dirname, "..", "frontends", "web", "app.js"),
   "utf8"
 );
+const DATA_SOURCE = fs.readFileSync(path.join(__dirname, "..", "frontends", "web", "conversation-data.js"), "utf8");
+const STORE_SOURCE = fs.readFileSync(path.join(__dirname, "..", "frontends", "web", "conversation-store.js"), "utf8");
+const STREAM_CLIENT_SOURCE = fs.readFileSync(path.join(__dirname, "..", "frontends", "web", "stream-client.js"), "utf8");
 const CHAT_TIMEOUT_MS = 120_000;
-const ALLOWED_ENDPOINTS = new Set(["/live", "/ready", "/chat"]);
+const ALLOWED_ENDPOINTS = new Set(["/status", "/chat", "/chat/stream"]);
 
 class FakeElement {
   constructor(tagName = "div") {
@@ -105,6 +110,8 @@ class FakeElement {
     return this.dispatch("submit").results[0];
   }
 
+  click() { return this.dispatch("click").results[0]; }
+
   focus() {
     this.focused = true;
   }
@@ -120,6 +127,50 @@ function makeResponse(payload, status = 200) {
   };
 }
 
+function statusPayload(state = "ready", overrides = {}) {
+  return {
+    version: 1,
+    state,
+    operation: null,
+    delivery: null,
+    error_code: null,
+    checked_at: "2026-11-03T00:00:00Z",
+    ...overrides,
+  };
+}
+
+const encoder = new TextEncoder();
+function sseEvent(name, payload) {
+  return encoder.encode(`event: ${name}\r\ndata: ${JSON.stringify(payload)}\r\n\r\n`);
+}
+function streamingResponse(request, events = null, status = 200) {
+  const body = new ReadableStream({
+    start(controller) {
+      request.streamController = controller;
+      if (events) {
+        for (const [name, payload] of events) controller.enqueue(sseEvent(name, payload));
+        controller.close();
+      }
+      request.signal.addEventListener("abort", () => {
+        request.streamCancelled = true;
+        try {
+          const error = new Error("stream request aborted");
+          error.name = "AbortError";
+          controller.error(error);
+        } catch { /* The stream may already have ended. */ }
+      }, { once: true });
+    },
+    cancel() { request.streamCancelled = true; },
+  });
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: () => status === 200 ? "text/event-stream; charset=utf-8" : "application/json" },
+    body,
+    async json() { return { error: { code: "chat_busy", message: "busy" } }; },
+  };
+}
+
 function deferred() {
   let resolve;
   let reject;
@@ -130,22 +181,50 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-function makePage() {
+function makeStorage() {
+  const values = new Map();
+  return { values, getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value), removeItem: (key) => values.delete(key) };
+}
+function makeLocks() {
+  let pending = Promise.resolve();
+  return { request(name, options, callback) {
+    const next = pending.then(() => callback({ name }));
+    pending = next.catch(() => {});
+    return next;
+  } };
+}
+function makePage(options = {}) {
   const elements = {
     "chat-form": new FakeElement("form"),
     "message-input": new FakeElement("textarea"),
     "send-button": new FakeElement("button"),
     "new-conversation-button": new FakeElement("button"),
+    "stop-button": new FakeElement("button"),
+    "stream-replies": new FakeElement("input"),
     conversation: new FakeElement("section"),
     "empty-state": new FakeElement("div"),
     notice: new FakeElement("p"),
     "status-dot": new FakeElement("span"),
     "status-label": new FakeElement("span"),
   };
+  for (const id of ["context-budget", "save-conversations", "saved-conversations", "open-conversation", "delete-conversation", "clear-conversations", "export-json", "export-markdown", "storage-status"]) {
+    elements[id] = new FakeElement(id === "saved-conversations" ? "select" : "div");
+  }
   elements.conversation.append(elements["empty-state"]);
+  elements["stream-replies"].checked = false;
+  elements["stop-button"].hidden = true;
+  elements["stop-button"].disabled = true;
+  const storage = options.storage || makeStorage();
+  const locks = options.locks === null ? null : (options.locks || makeLocks());
+  const downloads = [];
+  const confirmAnswers = [];
 
   const windowListeners = new Map();
   const window = {
+    localStorage: storage,
+    navigator: { locks },
+    confirm() { return confirmAnswers.length ? confirmAnswers.shift() : true; },
     addEventListener(type, listener) {
       const listeners = windowListeners.get(type) || [];
       listeners.push(listener);
@@ -166,6 +245,8 @@ function makePage() {
   };
   const clearTimeoutFake = (id) => timers.delete(id);
   const chatOutcomes = [];
+  const streamOutcomes = [];
+  const statusOutcomes = [];
   const requests = [];
 
   function fetchFake(url, options = {}) {
@@ -179,8 +260,15 @@ function makePage() {
     };
     requests.push(request);
 
-    if (request.url === "/live") return Promise.resolve(makeResponse({ healthy: true }));
-    if (request.url === "/ready") return Promise.resolve(makeResponse({ healthy: true }));
+    if (request.url === "/status") {
+      const outcome = statusOutcomes.shift();
+      if (typeof outcome === "function") return outcome(request);
+      return Promise.resolve(outcome ?? makeResponse(statusPayload()));
+    }
+    if (request.url === "/chat/stream") {
+      const outcome = streamOutcomes.shift();
+      return Promise.resolve(typeof outcome === "function" ? outcome(request) : outcome);
+    }
     if (request.url !== "/chat") {
       return Promise.reject(new Error(`Unexpected endpoint: ${request.url}`));
     }
@@ -191,6 +279,7 @@ function makePage() {
   }
 
   const document = {
+    body: new FakeElement("body"),
     getElementById(id) {
       return elements[id] || null;
     },
@@ -205,22 +294,36 @@ function makePage() {
     fetch: fetchFake,
     AbortController,
     TextEncoder,
+    TextDecoder,
+    Uint8Array,
+    ReadableStream,
+    Blob,
+    URL: { createObjectURL(blob) { downloads.push(blob); return "blob:oratrice-" + downloads.length; }, revokeObjectURL() {} },
     TypeError,
     setTimeout: setTimeoutFake,
     clearTimeout: clearTimeoutFake,
   });
+  vm.runInContext(DATA_SOURCE, context, { filename: "conversation-data.js" });
+  vm.runInContext(STORE_SOURCE, context, { filename: "conversation-store.js" });
+  vm.runInContext(STREAM_CLIENT_SOURCE, context, { filename: "stream-client.js" });
   vm.runInContext(APP_SOURCE, context, { filename: "frontends/web/app.js" });
 
   return {
     context,
+    storage,
+    downloads,
+    confirmAnswers,
     elements,
     requests,
     timers,
     chatOutcomes,
+    streamOutcomes,
     window,
     enqueue(outcome) {
       chatOutcomes.push(outcome);
     },
+    enqueueStream(outcome) { streamOutcomes.push(outcome); },
+    enqueueStatus(outcome) { statusOutcomes.push(outcome); },
     runTimer(delay) {
       const match = [...timers.entries()].find(([, timer]) => timer.delay === delay);
       assert.ok(match, `expected a scheduled timer with delay ${delay}`);
@@ -230,15 +333,21 @@ function makePage() {
     chatRequests() {
       return requests.filter((request) => request.url === "/chat");
     },
+    streamRequests() {
+      return requests.filter((request) => request.url === "/chat/stream");
+    },
+    statusRequests() {
+      return requests.filter((request) => request.url === "/status");
+    },
   };
 }
 
 async function settle() {
-  for (let index = 0; index < 16; index += 1) await Promise.resolve();
+  for (let index = 0; index < 48; index += 1) await Promise.resolve();
 }
 
-async function readyPage() {
-  const page = makePage();
+async function readyPage(options = {}) {
+  const page = makePage(options);
   await settle();
   return page;
 }
@@ -268,6 +377,130 @@ function messageArticles(page) {
 function bodyText(article) {
   return article.children.find((child) => child.classList.contains("message-body")).textContent;
 }
+
+test("M15 status polling displays server busy state after delivery is stopped", async () => {
+  const page = await readyPage();
+  page.enqueueStatus(makeResponse(statusPayload("busy", {
+    operation: "stream",
+    delivery: "stopped",
+  })));
+
+  await vm.runInContext("checkStatus()", page.context);
+
+  assert.equal(page.statusRequests().at(-1).url, "/status");
+  assert.equal(page.elements["status-dot"].className, "status-dot status-busy");
+  assert.equal(page.elements["status-label"].textContent, "Busy: model work continues after Stop");
+  assert.equal(page.elements["message-input"].disabled, false);
+});
+
+test("M15 displays Starting separately and keeps active status polling in the two to three second range", async () => {
+  const page = await readyPage();
+  page.enqueueStatus(makeResponse(statusPayload("starting")));
+  await vm.runInContext("checkStatus()", page.context);
+  assert.equal(page.elements["status-dot"].className, "status-dot status-starting");
+  assert.equal(page.elements["status-label"].textContent, "Starting");
+
+  page.enqueueStatus(makeResponse(statusPayload("busy", {
+    operation: "chat",
+    delivery: null,
+  })));
+  await vm.runInContext("checkStatus()", page.context);
+  assert.equal(page.elements["status-dot"].className, "status-dot status-busy");
+  assert.equal(page.elements["status-label"].textContent, "Busy: model work continues");
+  assert.ok([...page.timers.values()].some((timer) => timer.delay >= 2_000 && timer.delay <= 3_000));
+});
+
+test("M15 distinguishes operation and readiness errors while keeping the composer available", async () => {
+  const page = await readyPage();
+  page.enqueueStatus(makeResponse(statusPayload("error", { error_code: "operation_failed" })));
+  await vm.runInContext("checkStatus()", page.context);
+  assert.equal(page.elements["status-dot"].className, "status-dot status-error");
+  assert.equal(page.elements["status-label"].textContent, "Last request failed");
+
+  page.enqueueStatus(makeResponse(statusPayload("error", { error_code: "readiness_failed" })));
+  await vm.runInContext("checkStatus()", page.context);
+  assert.equal(page.elements["status-label"].textContent, "Service error");
+  assert.equal(page.elements["message-input"].disabled, false);
+});
+
+test("M15 status transport loss is Offline and a later valid probe recovers", async () => {
+  const page = await readyPage();
+  page.enqueueStatus(() => Promise.reject(new TypeError("connection refused")));
+  await vm.runInContext("checkStatus()", page.context);
+  assert.equal(page.elements["status-dot"].className, "status-dot status-offline");
+  assert.equal(page.elements["status-label"].textContent, "Core unavailable");
+
+  page.enqueueStatus(makeResponse(statusPayload("ready")));
+  await vm.runInContext("checkStatus()", page.context);
+  assert.equal(page.elements["status-dot"].className, "status-dot status-ready");
+  assert.equal(page.elements["status-label"].textContent, "Ready");
+});
+
+test("M15 malformed status fails closed instead of claiming readiness", async () => {
+  const page = await readyPage();
+  const invalidStatuses = [
+    { version: 1, state: "ready" },
+    statusPayload("busy", { operation: null, delivery: "active" }),
+    statusPayload("busy", { operation: "chat", delivery: "stopped" }),
+    statusPayload("ready", { operation: "chat" }),
+    statusPayload("starting", { error_code: "operation_failed" }),
+    statusPayload("error", { error_code: null }),
+    statusPayload("ready", { checked_at: "2026-02-31T00:00:00Z" }),
+  ];
+
+  for (const payload of invalidStatuses) {
+    page.enqueueStatus(makeResponse(payload));
+    await vm.runInContext("checkStatus()", page.context);
+    assert.equal(page.elements["status-dot"].className, "status-dot status-error");
+    assert.equal(page.elements["status-label"].textContent, "Status unavailable");
+  }
+  assert.equal(page.elements["message-input"].disabled, false);
+});
+
+test("M15 status checks are single-flight and pagehide aborts before pageshow resumes polling", async () => {
+  const page = await readyPage();
+  const pendingStatus = deferred();
+  page.enqueueStatus(() => pendingStatus.promise);
+  const check = vm.runInContext("checkStatus()", page.context);
+  await settle();
+  const requestsDuringProbe = page.statusRequests().length;
+  await vm.runInContext("checkStatus(); checkStatus()", page.context);
+  assert.equal(page.statusRequests().length, requestsDuringProbe);
+
+  const pendingRequest = page.statusRequests().at(-1);
+  page.window.dispatch("pagehide");
+  assert.equal(pendingRequest.signal.aborted, true);
+  const abort = new Error("aborted");
+  abort.name = "AbortError";
+  pendingStatus.reject(abort);
+  await check;
+
+  page.enqueueStatus(makeResponse(statusPayload("ready")));
+  page.window.dispatch("pageshow", { persisted: true });
+  await settle();
+  assert.equal(page.statusRequests().length, requestsDuringProbe + 1);
+  assert.equal(page.elements["status-label"].textContent, "Ready");
+});
+
+test("M15 status probe timeout is bounded and reported Offline", async () => {
+  const page = await readyPage();
+  page.enqueueStatus((request) => new Promise((resolve, reject) => {
+    request.signal.addEventListener("abort", () => {
+      const error = new Error("timed out");
+      error.name = "AbortError";
+      reject(error);
+    }, { once: true });
+  }));
+  const check = vm.runInContext("checkStatus()", page.context);
+  await settle();
+  assert.equal(page.statusRequests().at(-1).signal.aborted, false);
+  page.runTimer(4_000);
+  await check;
+
+  assert.equal(page.statusRequests().at(-1).signal.aborted, true);
+  assert.equal(page.elements["status-dot"].className, "status-dot status-offline");
+  assert.equal(page.elements["status-label"].textContent, "Core unavailable");
+});
 
 test("sends code follow-up with only complete successful pairs and the fixed reply budget", async () => {
   const page = await readyPage();
@@ -576,7 +809,374 @@ test("untrusted messages render as text and fetch stays on the three same-origin
 
   const displayed = messageArticles(page).map(bodyText);
   assert.deepEqual(displayed, [userText, assistantText]);
-  assert.ok(page.requests.length >= 3);
+  assert.ok(page.statusRequests().length >= 1);
+  assert.equal(page.chatRequests().length, 1);
   assert.ok(page.requests.every((request) => ALLOWED_ENDPOINTS.has(request.url)));
   assert.equal(page.requests.some((request) => request.url === "/route"), false);
+});
+
+
+const STORE_KEY = "oratrice.conversations.v1";
+async function toggleSaving(page, enabled) {
+  page.elements["save-conversations"].checked = enabled;
+  await page.elements["save-conversations"].dispatch("change").results[0];
+  await settle();
+}
+
+test("M13 budget counter uses UTF-8 and keeps an over-budget draft editable", async () => {
+  const page = await readyPage();
+  page.elements["message-input"].value = "\u4f60".repeat(502);
+  page.elements["message-input"].dispatch("input");
+  assert.match(page.elements["context-budget"].textContent, /1538 \/ 1536/);
+  assert.equal(page.elements["send-button"].disabled, true);
+  assert.equal(page.elements["message-input"].disabled, false);
+  assert.equal(page.chatRequests().length, 0);
+});
+
+test("M13 marks a truncated reply and exports finish metadata without provider payloads", async () => {
+  const page = await readyPage();
+  const text = "code\n```python\nprint('\u4f60\u597d')\n```";
+  page.enqueue({ content: text, finish_reason: "length", raw: { token: "hidden-value" } });
+  await submitInput(page, "Explain this code");
+  assert.match(page.elements.notice.textContent, /length limit.*incomplete/i);
+  const answer = messageArticles(page).at(-1);
+  assert.ok(answer.children.some((x) => /Incomplete reply/.test(x.textContent)));
+  page.elements["export-json"].click();
+  page.elements["export-markdown"].click();
+  assert.equal(page.downloads.length, 2);
+  const exported = JSON.parse(await page.downloads[0].text());
+  assert.equal(exported.format, "oratrice-conversation");
+  assert.equal(exported.messages[1].content, text);
+  assert.equal(exported.messages[1].finish_reason, "length");
+  assert.doesNotMatch(await page.downloads[0].text(), /hidden-value|raw/);
+  assert.match(await page.downloads[1].text(), /incomplete/i);
+  assert.equal(page.storage.values.size, 0);
+});
+
+test("M13 opt-in survives reload and keeps API history role-content only", async () => {
+  const storage = makeStorage();
+  const first = await readyPage({ storage });
+  first.enqueue({ content: "Remembered locally", finish_reason: "stop" });
+  await submitInput(first, "Save this successful pair");
+  assert.equal(storage.values.size, 0);
+  await toggleSaving(first, true);
+  const saved = JSON.parse(storage.getItem(STORE_KEY));
+  assert.equal(saved.enabled, true);
+  assert.equal(saved.conversations.length, 1);
+  const reloaded = await readyPage({ storage });
+  assert.equal(messageArticles(reloaded).length, 2);
+  assert.equal(reloaded.chatRequests().length, 0);
+  reloaded.enqueue({ content: "Continued" });
+  await submitInput(reloaded, "Continue");
+  assert.deepEqual(reloaded.chatRequests()[0].json.history, [
+    { role: "user", content: "Save this successful pair" },
+    { role: "assistant", content: "Remembered locally" },
+  ]);
+  assert.equal(JSON.parse(storage.getItem(STORE_KEY)).conversations[0].messages.length, 4);
+});
+
+test("M13 disabling saving retains old records and restores page-memory reload behavior", async () => {
+  const storage = makeStorage();
+  const page = await readyPage({ storage });
+  await toggleSaving(page, true);
+  page.enqueue({ content: "Saved" });
+  await submitInput(page, "Keep this");
+  await toggleSaving(page, false);
+  page.enqueue({ content: "Page only" });
+  await submitInput(page, "Do not persist this new turn");
+  assert.equal(JSON.parse(storage.getItem(STORE_KEY)).conversations[0].messages.length, 2);
+  const fresh = await readyPage({ storage });
+  assert.equal(messageArticles(fresh).length, 0);
+  assert.equal(fresh.elements["save-conversations"].checked, false);
+});
+
+test("M13 corrupted storage can be explicitly cleared while chat stays usable", async () => {
+  const storage = makeStorage();
+  storage.values.set(STORE_KEY, "not-json");
+  storage.values.set("unrelated", "keep");
+  const page = await readyPage({ storage });
+  assert.match(page.elements["storage-status"].textContent, /preserved/i);
+  assert.equal(page.elements["clear-conversations"].disabled, false);
+  page.enqueue({ content: "Still usable" });
+  await submitInput(page, "Hello");
+  await page.elements["clear-conversations"].click();
+  assert.equal(storage.getItem(STORE_KEY), null);
+  assert.equal(storage.getItem("unrelated"), "keep");
+  assert.equal(messageArticles(page).length, 2);
+});
+
+test("M13 quota and missing locks do not lose drafts or block subsequent chat", async () => {
+  const storage = makeStorage();
+  const page = await readyPage({ storage });
+  await toggleSaving(page, true);
+  storage.setItem = () => { throw new Error("quota"); };
+  page.enqueue({ content: "Visible despite save failure" });
+  await submitInput(page, "Keep visible");
+  assert.match(page.elements["storage-status"].textContent, /saving failed/i);
+  assert.equal(page.elements["send-button"].disabled, false);
+  page.elements["message-input"].value = "unsent draft";
+  page.confirmAnswers.push(false);
+  page.elements["new-conversation-button"].click();
+  assert.equal(page.elements["message-input"].value, "unsent draft");
+  assert.equal(messageArticles(page).length, 2);
+  const noLocks = await readyPage({ locks: null });
+  await toggleSaving(noLocks, true);
+  assert.match(noLocks.elements["storage-status"].textContent, /Web Locks/);
+  noLocks.enqueue({ content: "Page only is fine" });
+  await submitInput(noLocks, "Hello");
+  assert.equal(messageArticles(noLocks).length, 2);
+});
+
+test("M13 over-budget saved records open without sending or silently trimming", async () => {
+  const storage = makeStorage();
+  const record = { id: "oversized", title: "Long saved text", revision: 1,
+    createdAt: "2026-11-03T00:00:00.000Z", updatedAt: "2026-11-03T00:00:00.000Z",
+    messages: [{ role: "user", content: "x".repeat(1400) }, { role: "assistant", content: "y".repeat(200) }] };
+  storage.setItem(STORE_KEY, JSON.stringify({ version: 1, enabled: true, activeId: record.id, conversations: [record] }));
+  const page = await readyPage({ storage });
+  assert.equal(messageArticles(page).length, 2);
+  assert.equal(page.chatRequests().length, 0);
+  assert.equal(page.elements["send-button"].disabled, true);
+  assert.match(page.elements.notice.textContent, /exceeds.*context limit/i);
+  assert.equal(stateHistory(page)[0].content.length, 1400);
+  assert.equal(page.elements["export-json"].disabled, false);
+});
+
+test("M13 deletion retains current page and explicit re-enable saves under a fresh identity", async () => {
+  const page = await readyPage();
+  await toggleSaving(page, true);
+  page.enqueue({ content: "Saved reply" });
+  await submitInput(page, "Saved question");
+  const original = JSON.parse(page.storage.getItem(STORE_KEY)).conversations[0].id;
+  page.elements["saved-conversations"].value = original;
+  await page.elements["delete-conversation"].click();
+  assert.equal(messageArticles(page).length, 2);
+  assert.equal(JSON.parse(page.storage.getItem(STORE_KEY)).conversations.length, 0);
+  await toggleSaving(page, false);
+  await toggleSaving(page, true);
+  const records = JSON.parse(page.storage.getItem(STORE_KEY)).conversations;
+  assert.equal(records.length, 1);
+  assert.notEqual(records[0].id, original);
+});
+
+
+test("M13 opening another saved record protects drafts and selects the displayed record", async () => {
+  const page = await readyPage();
+  await toggleSaving(page, true);
+  page.enqueue({ content: "First answer" });
+  await submitInput(page, "First question");
+  const first = JSON.parse(page.storage.getItem(STORE_KEY)).activeId;
+  page.elements["new-conversation-button"].click();
+  await settle();
+  page.enqueue({ content: "Second answer" });
+  await submitInput(page, "Second question");
+  const second = JSON.parse(page.storage.getItem(STORE_KEY)).activeId;
+  page.elements["message-input"].value = "keep my draft";
+  page.elements["saved-conversations"].value = first;
+  page.confirmAnswers.push(false);
+  await page.elements["open-conversation"].click();
+  assert.equal(page.elements["message-input"].value, "keep my draft");
+  assert.equal(stateHistory(page)[0].content, "Second question");
+  page.confirmAnswers.push(true);
+  await page.elements["open-conversation"].click();
+  assert.equal(stateHistory(page)[0].content, "First question");
+  assert.equal(page.elements["saved-conversations"].value, first);
+  assert.notEqual(first, second);
+});
+
+test("M13 cross-tab writes pause saving without replacing the visible conversation", async () => {
+  const storage = makeStorage();
+  const locks = makeLocks();
+  const first = await readyPage({ storage, locks });
+  await toggleSaving(first, true);
+  first.enqueue({ content: "Original answer" });
+  await submitInput(first, "Original question");
+  const second = await readyPage({ storage, locks });
+  second.enqueue({ content: "Second tab answer" });
+  await submitInput(second, "Second tab question");
+  await Promise.all(first.window.dispatch("storage", { key: STORE_KEY }));
+  assert.equal(stateHistory(first).length, 2);
+  assert.match(first.elements["storage-status"].textContent, /another tab.*paused/i);
+  first.enqueue({ content: "Page-only answer" });
+  await submitInput(first, "First tab unsaved question");
+  const record = JSON.parse(storage.getItem(STORE_KEY)).conversations[0];
+  assert.equal(record.messages[2].content, "Second tab question");
+  assert.equal(record.messages.some((x) => x.content === "First tab unsaved question"), false);
+  assert.equal(stateHistory(first)[2].content, "First tab unsaved question");
+});
+
+test("M13 bounded lock waiting restores the composer and preserves a typed draft", async () => {
+  const locks = { request(name, options) { return new Promise((resolve, reject) => {
+    options.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+  }); } };
+  const page = await readyPage({ locks });
+  page.elements["message-input"].value = "draft during save";
+  page.elements["save-conversations"].checked = true;
+  const pending = page.elements["save-conversations"].dispatch("change").results[0];
+  await settle();
+  assert.equal(page.elements["message-input"].disabled, true);
+  page.runTimer(2000);
+  await pending;
+  assert.equal(page.elements["message-input"].value, "draft during save");
+  assert.equal(page.elements["message-input"].disabled, false);
+  assert.equal(page.elements["save-conversations"].checked, false);
+  assert.match(page.elements["storage-status"].textContent, /Web Locks/);
+});
+
+test("M13 an empty length-limited answer is recoverable and never saved", async () => {
+  const page = await readyPage();
+  await toggleSaving(page, true);
+  page.enqueue({ content: "", finish_reason: "length" });
+  await submitInput(page, "Keep this draft");
+  assert.equal(page.elements["message-input"].value, "Keep this draft");
+  assert.match(page.elements.notice.textContent, /length limit.*without displayable text/i);
+  assert.deepEqual(stateHistory(page), []);
+  assert.equal(JSON.parse(page.storage.getItem(STORE_KEY)).conversations.length, 0);
+});
+
+test("M13 reset waits for its saved selection commit and preserves the page on lock timeout", async () => {
+  const locks = makeLocks();
+  const page = await readyPage({ locks });
+  await toggleSaving(page, true);
+  page.enqueue({ content: "Saved answer" });
+  await submitInput(page, "Saved question");
+  const active = JSON.parse(page.storage.getItem(STORE_KEY)).activeId;
+  const originalRequest = locks.request;
+  locks.request = (name, options) => new Promise((resolve, reject) => {
+    options.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+  });
+  const pending = page.elements["new-conversation-button"].click();
+  await settle();
+  assert.equal(messageArticles(page).length, 2);
+  assert.equal(page.elements["message-input"].disabled, true);
+  let warned = false;
+  page.window.dispatch("beforeunload", { preventDefault() { warned = true; } });
+  assert.equal(warned, true);
+  page.runTimer(2000);
+  await pending;
+  assert.equal(messageArticles(page).length, 2);
+  assert.equal(JSON.parse(page.storage.getItem(STORE_KEY)).activeId, active);
+  assert.equal(page.elements["message-input"].disabled, false);
+  assert.match(page.elements["storage-status"].textContent, /refreshing may reopen/);
+  locks.request = originalRequest;
+  await page.elements["new-conversation-button"].click();
+  assert.equal(messageArticles(page).length, 0);
+  assert.equal(JSON.parse(page.storage.getItem(STORE_KEY)).activeId, null);
+  const reloaded = await readyPage({ storage: page.storage, locks });
+  assert.equal(messageArticles(reloaded).length, 0);
+});
+
+test("M14 streaming is opt-in, sends the same bounded request contract, and commits only after complete", async () => {
+  const page = await readyPage();
+  assert.equal(page.elements["stream-replies"].checked, false);
+  assert.equal(page.elements["stop-button"].hidden, true);
+  await toggleSaving(page, true);
+  page.elements["stream-replies"].checked = true;
+  page.enqueueStream((request) => streamingResponse(request, [
+    ["start", { version: 1, request_id: "stream-1", cancellation: "stop_wait_only" }],
+    ["delta", { text: "First " }],
+    ["delta", { text: "reply 🌿" }],
+    ["complete", { finish_reason: "stop" }],
+  ]));
+  await submitInput(page, "First question");
+
+  assert.deepEqual(page.streamRequests()[0].json, {
+    message: "First question", history: [], max_tokens: 256,
+  });
+  assert.equal(page.chatRequests().length, 0);
+  assert.deepEqual(stateHistory(page), [
+    { role: "user", content: "First question" },
+    { role: "assistant", content: "First reply 🌿" },
+  ]);
+  assert.equal(messageArticles(page).at(-1)._oratriceBody.textContent, "First reply 🌿");
+  assert.equal(JSON.parse(page.storage.getItem(STORE_KEY)).conversations[0].messages[1].content, "First reply 🌿");
+  assert.equal(page.elements["message-input"].value, "");
+  assert.equal(page.elements["stop-button"].hidden, true);
+});
+
+test("M14 displays deltas before completion; Stop preserves the draft and excludes partial text", async () => {
+  const page = await readyPage();
+  await toggleSaving(page, true);
+  page.elements["stream-replies"].checked = true;
+  page.enqueueStream((request) => streamingResponse(request));
+  const pending = submitInput(page, "Question with a stopped answer");
+  await settle();
+  const request = page.streamRequests()[0];
+  assert.equal(page.elements["stop-button"].hidden, false);
+  request.streamController.enqueue(sseEvent("start", {
+    version: 1, request_id: "stream-2", cancellation: "stop_wait_only",
+  }));
+  request.streamController.enqueue(sseEvent("delta", { text: "Visible partial" }));
+  await settle();
+
+  const partial = messageArticles(page).at(-1);
+  assert.equal(partial._oratriceBody.textContent, "Visible partial");
+  assert.deepEqual(stateHistory(page), []);
+  assert.equal(page.elements["export-json"].disabled, true);
+  page.elements["stop-button"].click();
+  await pending;
+
+  assert.equal(request.streamCancelled, true);
+  assert.equal(page.elements["message-input"].value, "Question with a stopped answer");
+  assert.deepEqual(stateHistory(page), []);
+  assert.match(partial._oratriceLabel.textContent, /partial/i);
+  assert.match(partial.children.at(-1).textContent, /excluded from conversation history and exports/i);
+  assert.match(page.elements.notice.textContent, /model may continue working/i);
+  assert.equal(JSON.parse(page.storage.getItem(STORE_KEY)).conversations.length, 0);
+
+  page.enqueueStream((next) => streamingResponse(next, [
+    ["start", { version: 1, request_id: "stream-3", cancellation: "stop_wait_only" }],
+    ["delta", { text: "Recovered" }],
+    ["complete", { finish_reason: "stop" }],
+  ]));
+  await submitInput(page, "Retry with complete response");
+  assert.deepEqual(page.streamRequests()[1].json.history, []);
+  assert.deepEqual(stateHistory(page), [
+    { role: "user", content: "Retry with complete response" },
+    { role: "assistant", content: "Recovered" },
+  ]);
+  assert.equal(JSON.parse(page.storage.getItem(STORE_KEY)).conversations[0].messages.length, 2);
+});
+
+test("M14 rejects premature EOF and keeps stream provider errors out of history", async () => {
+  const page = await readyPage();
+  page.elements["stream-replies"].checked = true;
+  page.enqueueStream((request) => streamingResponse(request, [
+    ["start", { version: 1, request_id: "stream-4", cancellation: "stop_wait_only" }],
+    ["delta", { text: "Partial before EOF" }],
+  ]));
+  await submitInput(page, "EOF draft");
+  assert.match(messageArticles(page).at(-1)._oratriceLabel.textContent, /partial/i);
+  assert.equal(page.elements["message-input"].value, "EOF draft");
+  assert.deepEqual(stateHistory(page), []);
+  assert.match(page.elements.notice.textContent, /ended before the reply was complete/i);
+
+  page.enqueueStream((request) => streamingResponse(request, [
+    ["start", { version: 1, request_id: "stream-5", cancellation: "stop_wait_only" }],
+    ["delta", { text: "Provider began" }],
+    ["error", {
+      error: { code: "provider_error", message: "The model failed.", request_id: "stream-5" },
+      work_may_continue: true,
+    }],
+  ]));
+  await submitInput(page, "Retry after provider error");
+  assert.deepEqual(page.streamRequests()[1].json.history, []);
+  assert.deepEqual(stateHistory(page), []);
+  assert.match(messageArticles(page).at(-1)._oratriceLabel.textContent, /partial/i);
+  assert.match(page.elements.notice.textContent, /model service failed/i);
+});
+
+test("M14 stream length completion is saved with its truncation status", async () => {
+  const page = await readyPage();
+  await toggleSaving(page, true);
+  page.elements["stream-replies"].checked = true;
+  page.enqueueStream((request) => streamingResponse(request, [
+    ["start", { version: 1, request_id: "stream-6", cancellation: "stop_wait_only" }],
+    ["delta", { text: "Short answer" }],
+    ["complete", { finish_reason: "length" }],
+  ]));
+  await submitInput(page, "Question");
+  assert.match(messageArticles(page).at(-1).children.at(-1).textContent, /length limit/);
+  assert.equal(JSON.parse(page.storage.getItem(STORE_KEY)).conversations[0].messages[1].finish_reason, "length");
+  assert.match(page.elements.notice.textContent, /may be incomplete/i);
 });

@@ -12,6 +12,7 @@ return strings for a low-cost migration path.
 from __future__ import annotations
 
 import json
+import inspect
 import time
 from collections.abc import Mapping
 from typing import Any, Iterator
@@ -33,6 +34,22 @@ from providers.base import (
     ProviderUnavailableError,
     coerce_request,
 )
+
+
+def _stream_lines(lines: Any) -> Any:
+    """Request one-line reads when the response iterator supports it."""
+
+    try:
+        parameters = inspect.signature(lines).parameters.values()
+    except (TypeError, ValueError):
+        return lines()
+    if any(
+        item.name == "chunk_size" and item.kind is not inspect.Parameter.POSITIONAL_ONLY
+        or item.kind is inspect.Parameter.VAR_KEYWORD
+        for item in parameters
+    ):
+        return lines(chunk_size=1)
+    return lines()
 
 
 class LlamaCppProvider(BaseProvider):
@@ -319,7 +336,8 @@ class LlamaCppProvider(BaseProvider):
                     "llama.cpp streaming response has no iter_lines()",
                     provider=self.provider_id,
                 )
-            for line in lines():
+            received_terminal = False
+            for line in _stream_lines(lines):
                 if not line:
                     continue
                 if isinstance(line, bytes):
@@ -334,6 +352,7 @@ class LlamaCppProvider(BaseProvider):
                     # Some test doubles/HTTP clients return raw JSON lines.
                     payload_str = decoded.strip()
                 if payload_str == "[DONE]":
+                    received_terminal = True
                     break
                 try:
                     data = json.loads(payload_str)
@@ -341,7 +360,14 @@ class LlamaCppProvider(BaseProvider):
                     continue
                 if not isinstance(data, Mapping):
                     continue
+                if data.get("error"):
+                    raise ProviderResponseError(
+                        "llama.cpp stream returned an upstream error",
+                        provider=self.provider_id,
+                    )
                 content, finish_reason, usage, request_id, response_model = self._extract_content(data)
+                if finish_reason is not None:
+                    received_terminal = True
                 choices = data.get("choices") or []
                 index = choices[0].get("index") if choices and isinstance(choices[0], Mapping) else None
                 if content or finish_reason is not None:
@@ -358,6 +384,11 @@ class LlamaCppProvider(BaseProvider):
                         raw=data,
                     )
                     yield chunk.content if legacy else chunk
+            if not received_terminal:
+                raise ProviderResponseError(
+                    "llama.cpp stream ended without a completion marker",
+                    provider=self.provider_id,
+                )
         except ProviderError:
             raise
         except (requests.exceptions.Timeout, TimeoutError) as exc:

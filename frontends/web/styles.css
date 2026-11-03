@@ -41,7 +41,9 @@ h1 { margin-bottom: 0; font-size: clamp(1.5rem, 4vw, 2.1rem); letter-spacing: -.
 .service-state { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .85rem; }
 .status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); box-shadow: 0 0 0 4px rgba(168,173,189,.12); }
 .status-ready { background: var(--ok); box-shadow: 0 0 0 4px rgba(139,224,178,.12); }
-.status-degraded { background: #f0c477; box-shadow: 0 0 0 4px rgba(240,196,119,.12); }
+.status-starting { background: #f0c477; box-shadow: 0 0 0 4px rgba(240,196,119,.12); }
+.status-busy { background: var(--accent-strong); box-shadow: 0 0 0 4px rgba(156,130,255,.16); }
+.status-error { background: #f0c477; box-shadow: 0 0 0 4px rgba(240,196,119,.12); }
 .status-offline { background: var(--danger); box-shadow: 0 0 0 4px rgba(255,157,157,.12); }
 
 .conversation {
@@ -60,6 +62,7 @@ h1 { margin-bottom: 0; font-size: clamp(1.5rem, 4vw, 2.1rem); letter-spacing: -.
 .message-user { margin-left: auto; background: var(--panel-soft); border-bottom-right-radius: 5px; }
 .message-assistant { border-bottom-left-radius: 5px; }
 .message-pending { opacity: .78; }
+.message-partial { border-color: #f0c477; }
 .message-label { display: block; color: var(--accent); font-size: .75rem; font-weight: 650; margin-bottom: 3px; }
 .message-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 
@@ -97,3 +100,17 @@ button.secondary:hover:not(:disabled), button.secondary:focus-visible:not(:disab
   .topbar-actions { gap: 8px; }
   .topbar-actions button { min-width: 0; padding: 7px 10px; font-size: .85rem; }
 }
+
+.conversation-controls { margin-top: 20px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.history-preference label { display: flex; align-items: center; gap: 8px; font-size: .85rem; }
+.history-preference .hint { display: block; margin: 6px 0 10px; }
+.history-actions, .export-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.history-actions select { min-width: 160px; flex: 1; max-width: 100%; padding: 8px; color: var(--text); background: var(--panel-soft); border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+.history-actions button, .export-actions button { font-size: .8rem; min-width: 0; }
+.storage-status { margin: 10px 0 0; color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; }
+.storage-error, .budget-status.budget-exceeded { color: var(--danger); }
+.budget-status { margin-bottom: 4px; color: var(--muted); font-size: .8rem; }
+.budget-help { display: block; margin-bottom: 10px; }
+.message-status { display: block; margin-top: 6px; color: #f0c477; font-size: .75rem; }
+.composer-footer { flex-wrap: wrap; }
+.composer-footer button { flex-shrink: 0; }

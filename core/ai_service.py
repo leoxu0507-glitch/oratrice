@@ -848,6 +848,32 @@ class CoreFacade:
                 self._log("debug", "core.request.routed", request_id=request_id, operation="stream", model=decision.model, provider=provider_id)
                 self._ensure_runtime(decision.model or model_id, request_id)
                 provider = self._provider(provider_id, request_id)
+                stream_method = getattr(provider, "stream", None)
+                if not callable(stream_method):
+                    raise CoreProviderError(
+                        "selected provider does not support streaming",
+                        request_id=request_id,
+                        provider=provider_id,
+                        operation="stream",
+                        code="stream_unsupported",
+                    )
+                capability_check = getattr(provider, "capabilities", None)
+                if callable(capability_check):
+                    capabilities = capability_check()
+                    if isinstance(capabilities, Mapping):
+                        supports_stream = capabilities.get(
+                            "supports_stream", capabilities.get("stream")
+                        )
+                    else:
+                        supports_stream = getattr(capabilities, "supports_stream", None)
+                    if supports_stream is False:
+                        raise CoreProviderError(
+                            "selected provider does not support streaming",
+                            request_id=request_id,
+                            provider=provider_id,
+                            operation="stream",
+                            code="stream_unsupported",
+                        )
                 chat_request = self._chat_request(decision.model or model_id or "default", message, kwargs, stream=True)
             except CoreError as exc:
                 self._log("error", "core.request.failed", request_id=request_id, operation="stream", provider=provider_id, error_code=exc.code, error_type=type(exc).__name__)
@@ -865,15 +891,34 @@ class CoreFacade:
 
         def iterate() -> Iterator[ChatChunk]:
             with request_context(request_id):
+                source: Any = None
+                values: Any = None
+                failed = False
+                completed = False
                 try:
-                    values = _call_legacy_or_canonical(getattr(provider, "stream"), chat_request)
+                    source = _call_legacy_or_canonical(stream_method, chat_request)
+                    values = iter(source)
                     for index, value in enumerate(values):
                         yield _chunk(value, request=chat_request, provider_id=provider_id, index=index)
-                    self._log("info", "core.request.completed", request_id=request_id, operation="stream", provider=provider_id, model=chat_request.model)
+                    completed = True
+                except NotImplementedError as exc:
+                    failed = True
+                    wrapped = CoreProviderError(
+                        "selected provider does not support streaming",
+                        request_id=request_id,
+                        provider=provider_id,
+                        cause=exc,
+                        operation="stream",
+                        code="stream_unsupported",
+                    )
+                    self._log("warning", "core.request.stream_unsupported", request_id=request_id, provider=provider_id)
+                    raise wrapped from exc
                 except CoreError as exc:
+                    failed = True
                     self._log("error", "core.request.failed", request_id=request_id, operation="stream", provider=provider_id, error_code=exc.code, error_type=type(exc).__name__)
                     raise
                 except ProviderError as exc:
+                    failed = True
                     wrapped = CoreProviderError(
                         str(exc), request_id=request_id, provider=provider_id, cause=exc,
                         details=getattr(exc, "details", None), operation="stream",
@@ -881,6 +926,7 @@ class CoreFacade:
                     self._log("error", "core.request.failed", request_id=request_id, operation="stream", provider=provider_id, error_code=wrapped.code, error_type=type(wrapped).__name__)
                     raise wrapped from exc
                 except Exception as exc:
+                    failed = True
                     wrapped = CoreProviderError(
                         f"provider {provider_id!r} stream failed: {exc}",
                         request_id=request_id,
@@ -890,6 +936,33 @@ class CoreFacade:
                     )
                     self._log("error", "core.request.failed", request_id=request_id, operation="stream", provider=provider_id, error_code=wrapped.code, error_type=type(wrapped).__name__)
                     raise wrapped from exc
+                finally:
+                    try:
+                        close_target = values if values is not None else source
+                        close = getattr(close_target, "close", None)
+                        if not callable(close) and source is not close_target:
+                            close = getattr(source, "close", None)
+                        if callable(close):
+                            close()
+                    except Exception as exc:
+                        self._log(
+                            "warning",
+                            "core.request.stream_close_failed",
+                            request_id=request_id,
+                            provider=provider_id,
+                            error_type=type(exc).__name__,
+                        )
+                        if not failed:
+                            raise CoreProviderError(
+                                "provider stream cleanup failed",
+                                request_id=request_id,
+                                provider=provider_id,
+                                cause=exc,
+                                operation="stream",
+                                code="stream_close_error",
+                            ) from exc
+                    if completed and not failed:
+                        self._log("info", "core.request.completed", request_id=request_id, operation="stream", provider=provider_id, model=chat_request.model)
 
         return iterate()
 
