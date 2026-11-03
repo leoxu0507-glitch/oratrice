@@ -131,11 +131,13 @@ checks are explicitly recorded as operator observations.
 See the [follow-up plan](../PROJECT-OVERVIEW.md#next-work-proposed-sequence)
 and preserve the [M12 ledger](../validation/M12-RELEASE-SUMMARY.md).
 
-Real-model revalidation remains paused by the operator. When explicitly
-resumed, a validation owner must first record the repaired hypothesis and
-remaining attempt allowance. Count setup failures and all helper runs toward
-the shared cap of three; do not erase the original ledger or reset the limit
-by changing a script name.
+The operator resumed real-model validation on 2026-11-03. Three resumed
+attempts were recorded and stopped; the real-run allowance for that window
+is exhausted. The examples below document the procedure, not permission for
+a fourth attempt. Further hardware validation requires a materially changed
+resource window and reviewed plan. Count setup failures and all helper runs
+toward the shared cap; preserve both original and resumed ledgers and never
+reset the limit by changing a script name.
 
 Prepare the following before loading models:
 

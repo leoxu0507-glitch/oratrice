@@ -54,37 +54,38 @@ cloud opt-in.
 ## Current status
 
 The latest published release is [v0.1.0](https://github.com/leoxu0507-glitch/oratrice/releases/tag/v0.1.0),
-a pre-release. Current development targets **v0.2**, whose real-use acceptance
-is still **BLOCKED**. The candidate is tracked in [PR #1](https://github.com/leoxu0507-glitch/oratrice/pull/1).
+a pre-release. Development targets **v0.2**, whose real-use acceptance remains
+**BLOCKED**. The source candidate is tracked in [draft PR #1](https://github.com/leoxu0507-glitch/oratrice/pull/1).
 
 | Area | Delivered and verified scope |
 | --- | --- |
-| Core infrastructure | Typed configuration and registries, provider contracts, decision-only routing, lifecycle management, and stable API boundaries |
-| Local deployment | Separate Core/Gateway environments, generated local-only configuration, offline diagnostics, and the Windows launcher |
-| Web conversation | Recent page-local context, request/context limits, New conversation, busy/error recovery, and keyboard controls |
-| Offline validation | Latest local Python gate after M12-R1: **254 passed**; the earlier JavaScript behavior gate: **11 passed**. Candidate CI runs separately on the PR. |
-| Real local use | Clean installation, cold start, browser chat, contextual follow-up, busy recovery, and Ctrl+C cleanup passed in the recorded scope. |
-| Release blockers | Restart failed before readiness. The 30-minute run completed 30 requests, but private commit grew 596.7 MiB without a demonstrated plateau. Real-model window-close acceptance is incomplete. |
+| Core infrastructure | Provider-neutral configuration, registries, routing, facade, lifecycle, and HTTP contracts |
+| Local deployment | Fresh isolated Core/Gateway installation, generated local-only configuration, strict Doctor, dry-run, and the Windows launcher |
+| Web conversation | Bounded page-local context, New conversation, busy/error recovery, and keyboard controls; earlier real-use and injected-provider checks remain recorded separately |
+| Latest offline gate | **276 Python tests passed** (one dependency deprecation warning), plus **11 JavaScript tests passed**. [Code-candidate CI](https://github.com/leoxu0507-glitch/oratrice/actions/runs/41567738093) passed the same gates. |
+| Resumed real validation | Three bounded attempts completed on 2026-11-03. With GPU fitting enabled, both model servers loaded; the controller stopped before full Core readiness at 309.3 MiB available physical RAM. |
+| Release blockers | Post-repair full-chain readiness, restart, model-loaded console close, and sustained-memory stability are not accepted. No stable v0.2 tag or release has been created. |
 
-The M12 follow-up explicitly limits the extra RAM-backed prompt cache and
-preserves typed startup diagnostics. Native console close/restart checks
-passed with lightweight surrogate processes. Real-model revalidation of these
-repairs was deferred by the operator, so they do not close the release blockers.
-Qwen-VL and cloud inference remain optional paths with separate acceptance
-requirements.
+Generated profiles disable extra RAM-backed prompt caches and now default GPT
+GPU layers to `auto` on compatible llama.cpp builds. This improved recorded
+VRAM headroom but did not establish enough host RAM for the complete stack in
+the tested window. All observed owned processes were reaped by the emergency
+controller finalizer and the four required ports were free afterward; this is
+not evidence that normal Ctrl+C/window-close acceptance passed. The attempt
+cap has been reached and real testing stopped. Existing profiles retain their
+operator-selected values. Qwen-VL and cloud inference remain separate optional
+paths with no implicit cloud fallback.
 
-- [Project overview](docs/PROJECT-OVERVIEW.md): architecture, M1-M12 history,
-  and accepted limitations.
-- [Next work](docs/PROJECT-OVERVIEW.md#next-work-proposed-sequence): M12 release
-  closeout, local conversation history, streaming, and pet status integration.
-- [M12 acceptance record](docs/validation/M12-RELEASE-SUMMARY.md): measured
-  results, attempt limits, repairs, and remaining evidence.
-- [v0.2 candidate notes](docs/releases/v0.2.0.md): candidate scope and release
-  checklist.
+- [Project overview](docs/PROJECT-OVERVIEW.md): architecture, milestone history,
+  and declared limitations.
+- [Next work](docs/PROJECT-OVERVIEW.md#next-work-proposed-sequence): M12 closeout
+  and proposed conversation-history, streaming, and pet-status scopes.
+- [M12 acceptance record](docs/validation/M12-RELEASE-SUMMARY.md): measurements,
+  attempt limits, repairs, and remaining evidence.
+- [v0.2 candidate notes](docs/releases/v0.2.0.md): scope and outstanding release gates.
 
-The default Oratrice UI is the bundled same-origin page at
-`http://127.0.0.1:8000/ui/`.  OpenWebUI remains an optional external UI for a
-custom profile; Oratrice does not install, configure, or own it.
+The default UI is bundled at `http://127.0.0.1:8000/ui/`. OpenWebUI remains an
+optional external UI; Oratrice does not install, configure, or own it.
 
 ## Install and configure on Windows
 

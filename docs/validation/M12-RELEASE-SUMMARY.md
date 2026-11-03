@@ -240,3 +240,103 @@ No real models were started during this documentation/publication task.
 Real-model restart, post-repair memory stability, and real-model window close
 remain unaccepted, so source synchronization does not authorize a stable v0.2
 release or close the M12 acceptance blockers.
+
+## Resumed real-use acceptance follow-up (2026-11-03)
+
+Status remains **BLOCKED**. The original three whole-chain attempts remain intact, and
+the resumed repair pass also consumed all three permitted attempts. No fourth run was
+made and no attempt budget was reset. This follow-up uses the logical run labels
+acceptance-01, acceptance-02, and acceptance-03; private transcripts, environment
+captures, and logs are not reproduced here.
+
+### Candidate and clean installation
+
+The candidate source sequence was 76bf0fd (M12-R1), f06bd04 (IPv4/IPv6 TCP-table probe
+repair), and ee1c4c5d503a0e2b37d4c490424e2b7c90a3574c (GPT-OSS automatic GPU-layer
+default). The fresh isolated source installation used Python 3.13.5, separate Core and
+Gateway virtual environments, and LiteLLM 1.74.3. The documented README setup was
+executed; pip checks and dependency imports passed. Existing operator profiles were
+preserved.
+
+The native C# launcher rebuild compiled successfully. Live acceptance used the tracked
+shipping Start-Oratrice.exe, SHA-256
+86FD403AF256B2CE03CC1655074582F4D21EC4408EDC06D55E9903FC248D0FAD. Before acceptance-02,
+all candidate tracked files matched the source checkout. The generated local profiles
+selected a zero-MiB RAM prompt cache for both models, context size 2048, parallelism 1,
+16 threads, and zero Gemma GPU layers. GPT-OSS used 999 GPU layers in acceptance-02 and
+the automatic default in acceptance-03. The profile remained local-only; no cloud
+credential was configured and no cloud request was made.
+
+The Windows host had 16,011 MiB RAM and an RTX 4060 Laptop GPU with 8 GB VRAM. Node.js
+25.6.0 was used for JavaScript checks. The recorded runtime identifiers were b9843 and
+86b94708f. Read-only process self-identity and native IPv4/IPv6 GetExtendedTcpTable
+checks passed. Additional helper unit tests used fakes only.
+
+### Resumed attempts
+
+- **acceptance-01 — 9.6 seconds, BLOCKED before model launch.** The pre-start baseline
+  was blocked because the 0.5-second and 2-second socket probes timed out even though
+  the operating-system listener table showed no listeners. No model was launched. The
+  probe was then changed to use GetExtendedTcpTable for IPv4 and IPv6. The focused
+  fake-only suite passed 52 tests. CI for f06bd04 passed 272 Python and 11 JavaScript
+  tests in [run
+  41567148316](https://github.com/leoxu0507-glitch/oratrice/actions/runs/41567148316).
+
+- **acceptance-02 — 23.9 seconds, stopped by the predeclared resource guard.** At
+  baseline, available RAM was 5370.9 MiB and free GPU memory was 7143 MiB. During model
+  loading, available RAM fell to 329.1 MiB, free GPU memory to 191 MiB, and tracked
+  private commit reached 11603.3 MiB. The guard stopped the attempt; this was not a
+  demonstrated out-of-memory crash or process failure. The launch record showed
+  common_fit_params explicitly fixing the GPU-layer value at 999, preventing automatic
+  selection. The outer owned-job cleanup left zero owned survivors and the required
+  ports free. After cleanup, available RAM was 6665.4 MiB and GPU use was 638 MiB.
+
+- **acceptance-03 — 40.0 seconds, stopped by the predeclared resource guard before Core
+  readiness.** This used the automatic GPT-OSS GPU-layer default. Baseline available RAM
+  was 6476.5 MiB and free GPU memory was 7323 MiB. The individual server logs show
+  GPT-OSS loaded and listening on port 8080 about 18.54 seconds after its own process
+  launch, and Gemma on port 8090 about 5.81 seconds after its own launch. Before full
+  Core readiness, available RAM was 309.3 MiB, below the predeclared 512-MiB floor; free
+  GPU memory was 984 MiB and tracked private commit was 7782.1 MiB. No chat, restart,
+  soak, or normal console-close check occurred in this resumed run. An emergency
+  controller job finalizer left zero owned survivors; the native listener table showed
+  ports 4000, 8000, 8080, and 8090 free. This emergency cleanup is not evidence for
+  normal Ctrl+C or WM_CLOSE behavior. After cleanup, available RAM was 10525.2 MiB and
+  GPU use was 635 MiB, compared with 634 MiB at baseline.
+
+### Predeclared guard and supporting checks
+
+Before model loading, the resource criteria were fixed at available physical RAM of at
+least 512 MiB, available commit of at least 4096 MiB, and steady free GPU memory of at
+least 128 MiB. The intended soak was 1800 seconds with 45-second pacing; its final 13
+samples had to show tail growth no greater than 64 MiB and range no greater than 256
+MiB. Cleanup had to return RAM within 1024 MiB and GPU use within 256 MiB of baseline.
+The soak was never reached, and these criteria were not lowered after either guarded
+stop.
+
+The final local Python regression passed 276 tests with one Starlette/AnyIO deprecation
+warning in 3.72 seconds. The local JavaScript gate passed 11 tests with zero failures,
+and the focused configuration-generation gate passed 18 tests. Exact-head CI for
+ee1c4c5d503a0e2b37d4c490424e2b7c90a3574c passed 276 Python tests with one deprecation
+warning in 7.79 seconds and 11 JavaScript tests with zero failures in [run
+41567738093](https://github.com/leoxu0507-glitch/oratrice/actions/runs/41567738093).
+
+### Updated M12 disposition
+
+| Task | Disposition | Evidence |
+| --- | --- | --- |
+| M12-R1: Reproducible acceptance procedure | **PASS** | Read-only Windows identity and TCP-table checks passed; focused fake-only tests passed. |
+| M12-R2: Repair configuration and baseline | **PASS** | Clean isolated Core/Gateway installation and generated local configuration passed; existing operator profiles were preserved. |
+| M12-R3: Restart and real console close | **BLOCKED** | The predeclared RAM guard stopped model startup before full Core readiness. Restart and normal console-close acceptance were not completed. |
+| M12-R4: Bounded sustained use | **DEFERRED** | No post-repair soak began. |
+| M12-R5: Release the accepted source | **BLOCKED** | Offline checks and CI passed, but the required real-use criteria remain unaccepted. |
+
+The current window's resource guard blocked the real default path before it became
+ready. The earlier restart cause and whether the observed memory growth reflects cache
+behavior or sustained process growth remain unestablished. Qwen-VL and cloud-provider
+paths remain optional and deferred. Preserve the original and resumed attempt ledgers;
+do not authorize another attempt by changing the harness or resetting the budget.
+
+The candidate remains in draft PR #1. No stable v0.2.0 merge, tag, or release is
+authorized by this record; preserve the existing v0.1.0 tag and published history.
+Source and checksum preparation do not close the release blockers.

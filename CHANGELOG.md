@@ -40,6 +40,18 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Validation and release status
 
+- On 2026-11-03 the final code candidate passed **276 Python tests** (one
+  dependency deprecation warning) and **11 JavaScript tests** in the fresh
+  isolated installation and [GitHub CI](https://github.com/leoxu0507-glitch/oratrice/actions/runs/41567738093).
+- The three resumed real attempts are complete. The first stopped before
+  model launch because a closed-port connect timed out; the listener-table
+  fix resolves that instrumentation defect. The other two stopped at the
+  predeclared available-RAM floor. Automatic GPU fitting improved VRAM
+  headroom and both models loaded, but full Core readiness was not accepted.
+  Observed owned processes were reaped by the emergency finalizer; normal
+  restart/close and a post-repair soak remain unverified. Stable v0.2 remains
+  blocked and the existing release history is preserved.
+
 - M12-R1 targeted fake-only gate: **34 passed**; full local offline Python
   regression: **254 passed** on 2026-11-03. This did not start services or
   establish real-model or native-process acceptance.
