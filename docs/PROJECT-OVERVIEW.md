@@ -79,6 +79,13 @@ not merged into the default profile.
 
 ## Validation snapshot
 
+- A later user-requested resource-window run started with `8425.4 MiB` available
+  RAM but stopped at the unchanged floor when RAM fell to `255.6 MiB`. Both
+  models loaded; no chat, restart, browser or soak check was reached. All
+  observed owned processes were reaped by emergency finalization and required
+  ports were free. The earlier attempt ledgers remain intact; this result does
+  not change the blocked release disposition.
+
 - On 2026-11-03 the fresh isolated candidate passed `276` Python tests (one
   dependency warning) and `11` JavaScript tests. Exact code commit `ee1c4c5`
   passed [CI run 6](https://github.com/leoxu0507-glitch/oratrice/actions/runs/41567738093).
