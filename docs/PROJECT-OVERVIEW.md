@@ -62,7 +62,7 @@ The main boundaries are:
 | M9 | Truthful lifecycle shutdown, interrupted-start rollback, Windows process supervision, per-instance chat/route admission | Historical M9 result: offline integration and surrogate-process checks PASS; real-model restart and user-console acceptance were deferred at that milestone |
 | M10 | Generated local configuration, isolated Gateway installation, strict offline diagnostics, portable CI definition | Historical M10 result: clean Windows/Python 3.13.5 install checks and 180 offline tests PASS; remote CI was not part of that validation and hardware stability remained deferred |
 | M11 | Bounded recent conversation, request limits, reset and recoverable UI behavior | Historical M11 result: 211 Python tests and 11 JavaScript checks passed; Edge acceptance used an injected provider; real-model acceptance was deferred |
-| M12 | Real-use acceptance, cache/diagnostic repairs, reproducible evidence tooling, Windows listener-table checks, and automatic GPU fitting | Fresh installation and offline gates PASS (`276` Python + `11` JS); resumed real validation stopped at the three-attempt cap for resource headroom. Restart, window-close, sustained-use, and v0.2 release remain BLOCKED. [M12 ledger](validation/M12-RELEASE-SUMMARY.md) |
+| M12 | Real-use acceptance, cache/diagnostic repairs, reproducible evidence collection, native listener tables, and automatic GPU fitting | PASS for default local text on the recorded host: real chat/UI, restart, Ctrl+C/console-close cleanup, and 1800-second sustained use. Offline code gate: 276 Python + 11 JavaScript tests. [M12 ledger](validation/M12-RELEASE-SUMMARY.md) |
 
 ## Current request path
 
@@ -79,46 +79,33 @@ not merged into the default profile.
 
 ## Validation snapshot
 
-- A later user-requested resource-window run started with `8425.4 MiB` available
-  RAM but stopped at the unchanged floor when RAM fell to `255.6 MiB`. Both
-  models loaded; no chat, restart, browser or soak check was reached. All
-  observed owned processes were reaped by emergency finalization and required
-  ports were free. The earlier attempt ledgers remain intact; this result does
-  not change the blocked release disposition.
-
-- On 2026-11-03 the fresh isolated candidate passed `276` Python tests (one
-  dependency warning) and `11` JavaScript tests. Exact code commit `ee1c4c5`
-  passed [CI run 6](https://github.com/leoxu0507-glitch/oratrice/actions/runs/41567738093).
-  Three resumed real attempts are recorded separately. The last loaded both
-  models but stopped before full Core readiness at `309.3 MiB` available RAM.
-  Emergency finalization reaped observed owned processes and freed all required
-  ports; normal shutdown/restart and the post-repair soak remain unaccepted.
-
-- Historical M9 integrated offline suite: `163 passed`; native process
-  supervision used surrogate child processes. At M9, real-model restart and
-  normal user-console acceptance were deferred.
-- Historical M10 clean Windows/Python 3.13.5 checkout: Core and Gateway
-  installation, strict Doctor, dry-run, and `180 passed`.
-- Historical M11 integrated suite: `211 passed` in Python and `11 passed` in the
-  separate JavaScript behavior gate. Edge UI/API acceptance used an injected
-  provider. No local JavaScript rerun was needed for the later launcher/configuration
-  repair follow-up.
-- M12 real cold-start, chat, browser, and Ctrl+C cleanup passed within the
-  recorded automated scope; the real-model restart failed to reach readiness.
-  The 30-minute soak completed 30 requests over 1801.5 seconds, but process
-  private commit grew by `596.7 MiB`; restart and sustained-memory acceptance
-  remain blocked. See the [M12 acceptance ledger](validation/M12-RELEASE-SUMMARY.md).
-- The repair follow-up sets `--cache-ram 0` in default profiles, but no real
-  model launch, restart, or sustained-use run followed that change. Native
-  window-close/restart/cleanup checks using surrogate processes passed; they
-  do not establish real-model behavior.
-- The November 2 local full Python regression after repairs passed `220` tests. The
-  JavaScript `11 passed` result is from an earlier gate and was not rerun
-  locally for the repair follow-up.
-  Baseline commit `416a537` passed [GitHub CI](https://github.com/leoxu0507-glitch/oratrice/actions/runs/41444082603); exact-checkout checks for current source are tracked in [PR #1](https://github.com/leoxu0507-glitch/oratrice/pull/1).
-- M8's required live UI, readiness, routing, and chat path: PASS.
-- Secrets, model weights, virtual environments, logs, and runtime output are
-  excluded from the repository.
+- The fresh isolated installation passed Core/Gateway setup, dependency checks,
+  strict Doctor, local configuration generation, and dry-run. The latest code
+  gate passed 276 Python tests (one dependency deprecation warning) and 11
+  JavaScript tests. Tested runtime source `3f9257f` passed
+  [CI run 8](https://github.com/leoxu0507-glitch/oratrice/actions/runs/41571231563).
+  Release-head checks are tracked in [PR #1](https://github.com/leoxu0507-glitch/oratrice/pull/1).
+- Real cold readiness took 40.70 seconds and restart took 37.68 seconds.
+  Core context, nine browser checks, normal Ctrl+C, and model-loaded classic
+  console close passed. Both cleanup cycles reaped observed owned identities
+  and freed required listeners before the outer controller finalizer.
+- The sustained session completed 1800 seconds and 24 sequential short
+  question/follow-up pairs. All 51 controller chat requests returned HTTP 200;
+  median response was 15.496 seconds and maximum 20.033 seconds.
+- Combined tracked private commit rose from 8384.6 to 8440.7 MiB (+56.1 MiB).
+  The final 13 samples rose 19.4 MiB within the recorded 64-MiB growth and
+  256-MiB range bounds. Working set fell 1711.8 MiB. These measurements are
+  different from available physical RAM and do not establish long-term
+  leak freedom.
+- The operator explicitly removed free-physical-RAM numeric aborts before
+  the successful pass. Minimum observed sustained available RAM was 77.7 MiB;
+  actual requests and lifecycle completed. After exit, available RAM was
+  9776.3 MiB and GPU use 721 MiB (baseline 8356.2 MiB / 733 MiB).
+- Historical stopped/failed attempts, surrogate checks, and earlier suite
+  counts remain in their [acceptance ledgers](validation/M12-RELEASE-SUMMARY.md).
+  They are not retroactively changed into successful evidence.
+- Model weights, credentials, environments, generated local profiles, and raw
+  logs remain excluded from source and release bundles.
 
 ## Accepted limitations
 
@@ -130,10 +117,10 @@ not merged into the default profile.
    does not prove the gateway path.
 3. DeepSeek requires explicit cloud policy opt-in and `DEEPSEEK_API_KEY`; no
    cloud provider is selected implicitly by the generated default profile.
-4. M9/M12 Windows supervision checks used surrogate child processes. The
-   recorded M12 real-model restart failed before readiness; post-repair real-model
-   restart, memory stability, and model-loaded window-close behavior remain
-   unverified. M8's earlier ConPTY observations are historical evidence.
+4. Real Ctrl+C and classic-console WM_CLOSE reaped owned processes on the
+   tested host. Windows control-event exit codes do not prove that Python
+   graceful-finally hooks ran. Other terminal hosts and embedding contexts
+   require their own lifecycle checks; M8/M9 surrogate evidence is historical.
 5. M11 context is recent and in-memory only: at most 12 prior messages, a
    1536-unit budget (UTF-8 content bytes plus 32 framing units per message),
    and a 256-token reply cap. Refresh or New conversation resets it. There is
@@ -145,19 +132,18 @@ not merged into the default profile.
 
 ## Next work: proposed sequence
 
-These are proposed follow-up scopes, not completed milestones or a claim that
-M12 has passed. Close the required local-text release first. Existing Core,
-router, provider, and launcher boundaries stay in place; no framework change
-or additional service is needed just to start the next milestone.
+M12 default local-text acceptance passed under the recorded operator-directed
+criteria. The following M13-M15 scopes remain proposals, not completed work.
+Existing Core, router, provider, and launcher boundaries stay in place; use
+configuration and existing ports when extending the product.
 
 ### M12 closeout: reproducible local acceptance and v0.2
 
-The operator resumed real-model validation on 2026-11-03. Three resumed
-attempts were completed and stopped; the original three-attempt ledger also
-remains intact. Current status: **R1/R2 preparation PASS; R3 BLOCKED; R4
-DEFERRED; R5 prepared but release BLOCKED**. Further real validation needs a
-materially changed resource window and a reviewed plan; changing a harness
-name does not reset either recorded attempt ledger.
+The original and later guarded-attempt ledgers remain intact. After the
+operator explicitly changed free-physical-RAM handling to observation, the
+complete real-use pass succeeded. **R1-R4 default local-text acceptance: PASS.**
+R5 uses exact-source CI, the preserved v0.1.0 history, and verified release
+assets; the published release is the authority for that final operation.
 
 | Task | Scope and owner boundary | Completion evidence |
 | --- | --- | --- |
@@ -174,8 +160,8 @@ separate cleanup results. The targeted fake-only gate passed `34` tests; the
 full local offline Python suite passed `254` on 2026-11-03. Windows calls were
 validated with fake APIs, not a native process acceptance run. No real model
 or service was started during that R1-only task. The subsequent R2 installation
-and configuration checks passed; R3/R4 hardware gates and the v0.2 release remain
-open after the separately recorded resumed attempts.
+and configuration checks passed. The later operator-directed real pass closed
+R3/R4 for the declared host and workload; earlier attempts remain preserved.
 
 The [M12 ledger](validation/M12-RELEASE-SUMMARY.md) remains the evidence source.
 The [live testing guide](architecture/LIVE_TESTING.md) describes the existing

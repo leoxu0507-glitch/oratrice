@@ -131,13 +131,14 @@ checks are explicitly recorded as operator observations.
 See the [follow-up plan](../PROJECT-OVERVIEW.md#next-work-proposed-sequence)
 and preserve the [M12 ledger](../validation/M12-RELEASE-SUMMARY.md).
 
-The operator resumed real-model validation on 2026-11-03. Three resumed
-attempts were recorded and stopped; the real-run allowance for that window
-is exhausted. The examples below document the procedure, not permission for
-a fourth attempt. Further hardware validation requires a materially changed
-resource window and reviewed plan. Count setup failures and all helper runs
-toward the shared cap; preserve both original and resumed ledgers and never
-reset the limit by changing a script name.
+The final operator-directed pass completed real chat/UI, restart, an
+1800-second session, and normal process cleanup. Before that pass the operator
+explicitly removed aborts based only on Windows free physical RAM; measurements
+were retained and real behavior determined the result. Process-private trends,
+request failures, readiness deadlines, and owned cleanup still require review.
+Earlier guarded stops remain recorded under their original criteria. Do not
+silently change historical results or treat a new script name as a new budget.
+Future validation remains explicit, bounded, and evidence-led.
 
 Prepare the following before loading models:
 

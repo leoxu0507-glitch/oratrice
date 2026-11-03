@@ -3,7 +3,7 @@
 All notable changes to Oratrice are documented in this file. The project
 follows [Semantic Versioning](https://semver.org/).
 
-## Unreleased - v0.2 candidate (acceptance blocked)
+## [0.2.0] - 2026-11-03
 
 ### Added
 
@@ -38,33 +38,33 @@ follows [Semantic Versioning](https://semver.org/).
 - Startup failure summaries preserve typed runtime state and exit codes,
   including zero, without echoing exception payloads or credentials.
 
-### Validation and release status
+### Validation
 
-- On 2026-11-03 the final code candidate passed **276 Python tests** (one
-  dependency deprecation warning) and **11 JavaScript tests** in the fresh
-  isolated installation and [GitHub CI](https://github.com/leoxu0507-glitch/oratrice/actions/runs/41567738093).
-- The three resumed real attempts are complete. The first stopped before
-  model launch because a closed-port connect timed out; the listener-table
-  fix resolves that instrumentation defect. The other two stopped at the
-  predeclared available-RAM floor. Automatic GPU fitting improved VRAM
-  headroom and both models loaded, but full Core readiness was not accepted.
-  Observed owned processes were reaped by the emergency finalizer; normal
-  restart/close and a post-repair soak remain unverified. Stable v0.2 remains
-  blocked and the existing release history is preserved.
+- Fresh Core/Gateway installation, strict Doctor, generated local-only profile,
+  and dry-run passed. The code gate passed 276 Python and 11 JavaScript tests;
+  exact release checks are linked from the release and PR.
+- Real cold start (40.70 s), contextual chat, nine browser checks, Ctrl+C cleanup,
+  restart (37.68 s), and model-loaded classic-console close passed.
+- The 1800-second session completed 24 sequential question/follow-up pairs.
+  All 51 controller chat requests returned HTTP 200; median latency was
+  15.496 seconds and maximum 20.033 seconds. The browser also exercised one
+  intentional busy rejection and recovered successfully.
+- Total tracked private commit grew 56.1 MiB; the final 13 samples grew
+  19.4 MiB within the recorded bounds. All observed owned processes exited
+  and required listeners were free before emergency finalization.
+- The operator revised the earlier physical-free-RAM abort policy before this
+  pass. Low Windows available-RAM counters were observed without aborting;
+  earlier guarded stops and unaccepted runs are retained in the
+  [M12 ledger](docs/validation/M12-RELEASE-SUMMARY.md).
 
-- M12-R1 targeted fake-only gate: **34 passed**; full local offline Python
-  regression: **254 passed** on 2026-11-03. This did not start services or
-  establish real-model or native-process acceptance.
-- Pre-R1 local repair regression: **220 Python tests passed**. The earlier
-  JavaScript behavior gate passed 11 tests; it was not rerun locally after
-  changes confined to launcher/configuration code.
-- Clean installation, real local cold start, browser conversation, contextual
-  follow-up, busy recovery, and Ctrl+C cleanup passed within their recorded
-  scopes. Native window close/restart also passed with lightweight surrogates.
-- **v0.2 remains blocked:** real-model restart failed before readiness and
-  private commit grew 596.7 MiB during the 30-minute run. Post-repair real-model
-  memory, restart, and window-close revalidation were deferred by the operator.
-  See the [M12 ledger](docs/validation/M12-RELEASE-SUMMARY.md).
+### Known limits
+
+- The real-use result covers the recorded Windows host, b9843 runtime, local
+  models, small context, and sequential 30-minute workload. Long contexts,
+  high concurrency, continuous uptime, Qwen-VL, and cloud inference are not
+  accepted by this release.
+- History is page-local and bounded; there is no persistence, streaming,
+  automatic summary, voice, Memory, Tools, or Agent behavior.
 
 ## [0.1.0] - 2026-09-27
 
@@ -91,3 +91,4 @@ follows [Semantic Versioning](https://semver.org/).
 
 [0.1.0]: https://github.com/leoxu0507-glitch/oratrice/releases/tag/v0.1.0
 
+[0.2.0]: https://github.com/leoxu0507-glitch/oratrice/releases/tag/v0.2.0
