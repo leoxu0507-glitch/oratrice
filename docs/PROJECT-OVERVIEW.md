@@ -1,6 +1,6 @@
 # Oratrice project overview
 
-This document summarizes the M1-M15 delivery history, current architecture,
+This document summarizes the M1-M16 delivery history, current architecture,
 and accepted limitations. Test counts refer only to recorded validation runs;
 live model evidence and offline pytest results are intentionally kept separate.
 
@@ -66,6 +66,7 @@ The main boundaries are:
 | M13 | Budget feedback, conversation exports, opt-in bounded browser retention, and recovery | Implemented, unreleased: 276 Python / 44 JavaScript tests and 12 injected-provider browser workflows passed |
 | M14 | Optional SSE replies, truthful Stop, bounded delivery, and iterator cleanup | Implemented, unreleased: 305 Python / 56 JavaScript tests, seven injected-provider browser workflows, and actual local stream/Stop/restart acceptance passed |
 | M15 | Shared safe execution status and an independent Tk status pet with a one-click entry | Implemented, unreleased: 372 Python / 63 JavaScript tests, six actual Tk/Edge/API workflows with an injected provider, and portable startup/close checks passed |
+| M16 | Daily installation, integrated real-use acceptance, release packaging, and v0.3.0 closeout | In progress; acceptance and release remain pending. See the [M16 record](validation/M16-RELEASE-SUMMARY.md) |
 
 ## Current request path
 
@@ -128,8 +129,9 @@ not merged into the default profile.
    1536-unit budget (UTF-8 content bytes plus 32 framing units per message),
    and a 256-token reply cap. Refresh or New conversation resets it. There is
    no persistence, automatic summary, or streaming in that release. The
-   unreleased M13-M14 source adds optional browser retention, export, and
-   streamed replies with delivery-only Stop, with the same context limits.
+   unreleased M13-M15 source adds optional browser retention, export, streamed
+   replies with delivery-only Stop, and a standalone status companion, with the
+   same context limits.
    The API requires one
    worker for the default profile's single-model admission guarantee.
 6. Measurements and soak evidence are limited to the tested host and settings.
@@ -139,9 +141,10 @@ not merged into the default profile.
 ## Next work: proposed sequence
 
 M12 default local-text acceptance passed under the recorded operator-directed
-criteria. M13-M15 are implemented in the current source and remain unreleased.
-Existing Core, router, provider, and launcher boundaries stay in place; use
-configuration and existing ports when extending the product.
+criteria. M13-M15 are integrated into `main` as development source; v0.3.0
+release acceptance is the remaining closeout. M16 adds no new assistant
+behavior. Existing Core, router, provider, and launcher boundaries stay in
+place; use configuration and existing ports when extending the product.
 
 ### M12 closeout: reproducible local acceptance and v0.2
 
@@ -352,6 +355,30 @@ scope error, and the first portable smoke waited on an inherited test pipe.
 Corrected bounded runs passed; cleanup reaped tracked identities and freed
 the fixture listener. M15 did not reload real models or repeat the M12 soak;
 M14's real-model evidence remains separate. Published tags are unchanged.
+
+### M16: daily installation and v0.3.0 release closeout (in progress)
+
+The M13-M15 source is merged into `main`; the published release remains
+v0.2.0. M16 verifies the exact candidate in the operator's daily environment,
+records the integrated live result, and creates a source package whose
+manifest and checksum identify the accepted commit. It introduces no new
+model, provider, cloud fallback, or agent behavior.
+
+| Task | Scope | Completion evidence |
+| --- | --- | --- |
+| M16.1: Fix the daily installation | Use the documented setup and local-profile tools with the operator's existing Python, llama.cpp runtime, and model files. Record resolved profile/environment locations and dependency checks; keep generated settings and machine paths private. | The canonical checkout starts the configured local text stack from its documented entry point, reaches `/ready`, and opens `/ui/`. No test or packaging helper supplies a model or runtime implicitly. |
+| M16.2: Integrated real-use acceptance | Against the local default provider, cover cold start, ordinary chat, a contextual follow-up, New conversation, failure recovery, opt-in retention/refresh/export, streaming and Stop, status-pet recovery, actual Open chat browser launch, close, and restart. Observe latency/resource trends and owned process identities. | Record each scenario, result, timing, and cleanup in the [M16 ledger](validation/M16-RELEASE-SUMMARY.md). Show that Stop may leave inference working, failures recover, and Oratrice does not switch to a cloud provider. The existing M12 soak is cited rather than repeated unless integration reveals a relevant regression. |
+| M16.3: Reproducible v0.3 source package | Build from one exact committed tree. Include relative source/launcher layout, English setup and known limits, release manifest, and SHA-256; exclude local profiles, credentials, model weights, environments, caches, and raw logs. Exercise installation from the archive with user-supplied Python/Tk, llama.cpp/DLLs, and models. | Archive contents and checksums match the committed tree; a clean destination can follow the instructions. Record artifact names and hashes in the M16 ledger and release notes. |
+| M16.4: Publish v0.3.0 | Require completed acceptance and passing CI for the exact source commit; publish source/assets and notes through the existing repository history. | Release commit, CI run, manifest, asset hashes, and acceptance ledger all refer to the same candidate. Preserve published v0.1.0 and v0.2.0. Until each item is verified, v0.3.0 remains pending. |
+
+**Current result:** M16 is pending. The exact installed environment, live
+scenario results, source-package hashes, final CI run, and release URL belong
+in the M16 ledger after they are observed. Do not infer them from M12's real
+model run, M14's separate streaming run, or M15's injected-provider workflows.
+The v0.3.0 candidate retains the existing 12-prior-message and 1536-unit input
+limits and 256-token reply cap. OpenPets SDK integration, Qwen-VL through
+LiteLLM, cloud inference, voice, model Memory, Tools, and Agents remain
+deferred.
 
 After these milestones, select additional work from actual usage. Vision,
 cloud-provider acceptance, voice, cross-session model Memory, Tools, Agents,

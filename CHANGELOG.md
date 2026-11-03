@@ -3,7 +3,16 @@
 All notable changes to Oratrice are documented in this file. The project
 follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - M13-M15
+## [Unreleased] - M13-M16 candidate
+
+### Release closeout
+
+- M13-M15 are integrated into `main`. M16 is preparing the v0.3.0 candidate;
+  installation, integrated real-use acceptance, the exact-source CI run, and
+  package checksums remain pending until recorded in the
+  [M16 acceptance ledger](docs/validation/M16-RELEASE-SUMMARY.md).
+- v0.3.0 adds no new assistant behavior. The existing v0.2.0 release remains
+  current until the candidate passes its documented gates and is published.
 
 ### Added
 
@@ -67,6 +76,9 @@ follows [Semantic Versioning](https://semver.org/).
   were reaped and the test listener closed.
 - M13 did not rerun model performance, lifecycle, or sustained-use acceptance.
   The v0.2.0 real-model record remains separate; published tags are unchanged.
+
+M13-M15 feature and validation notes above describe their recorded development
+checks. They do not substitute for the exact-candidate M16 acceptance.
 
 ## [0.2.0] - 2026-11-03
 

@@ -59,6 +59,10 @@ bounded multi-turn chat, portable setup, and verified real-model lifecycle
 behavior while preserving the [v0.1.0](https://github.com/leoxu0507-glitch/oratrice/releases/tag/v0.1.0)
 history.
 
+M13-M15 are integrated into `main` as development source. Their release as
+v0.3.0 is pending M16 installation, integrated live acceptance, and packaging
+checks; the existing v0.2.0 release assets do not contain these additions.
+
 | Area | Verified scope |
 | --- | --- |
 | Core | Provider-neutral configuration, registries, routing, facade, lifecycle, and HTTP contracts |
@@ -318,18 +322,20 @@ load model weights, or contact a cloud endpoint:
 
 ```powershell
 & .\.venv\Scripts\python.exe -m pytest -q
-node --test tests/web_chat.test.cjs
+node --test tests/web_chat.test.cjs tests/conversation_data.test.cjs `
+  tests/conversation_store.test.cjs tests/stream_client.test.cjs
 ```
 
-The separate M11 JavaScript gate uses Node's built-in runner with inert
-browser/HTTP fakes; no npm packages or frontend build are needed. The running
-Web UI itself requires only a browser. See [Testing](docs/architecture/TESTING.md).
+The JavaScript gate uses Node's built-in runner with inert browser/HTTP fakes;
+no npm packages or frontend build are needed. The running Web UI itself
+requires only a browser. See [Testing](docs/architecture/TESTING.md).
 
-The latest local repair regression passed 220 Python tests. Historical test
-counts and hardware observations remain in their milestone ledgers. CI reports
-its own exact checkout result; an offline pass does not accept real-model
-restart, shutdown, or sustained memory behavior. See the
-[M12 acceptance record](docs/validation/M12-RELEASE-SUMMARY.md).
+The last recorded M15 main-branch CI run passed 372 Python tests and all 63
+JavaScript tests. These are historical results for that commit; the M16
+candidate needs its own CI result. Offline checks do not establish real-model
+startup, shutdown, or sustained-use behavior. See the [M12 acceptance
+record](docs/validation/M12-RELEASE-SUMMARY.md) and [M16 candidate
+record](docs/validation/M16-RELEASE-SUMMARY.md).
 
 For an intentional local model request, use the non-collected helper only
 against a server that you started yourself:
