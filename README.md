@@ -2,7 +2,7 @@
 
 [![Portable checks](https://github.com/leoxu0507-glitch/oratrice/actions/workflows/ci.yml/badge.svg)](https://github.com/leoxu0507-glitch/oratrice/actions/workflows/ci.yml)
 ![Python 3.13](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
-![Status](https://img.shields.io/badge/status-v0.2%20candidate%20blocked-orange)
+![Status](https://img.shields.io/badge/status-v0.2%20local%20text%20accepted-brightgreen)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Oratrice is a local-first, provider-neutral core for a personal AI assistant.
@@ -53,39 +53,40 @@ cloud opt-in.
 
 ## Current status
 
-The latest published release is [v0.1.0](https://github.com/leoxu0507-glitch/oratrice/releases/tag/v0.1.0),
-a pre-release. Development targets **v0.2**, whose real-use acceptance remains
-**BLOCKED**. The source candidate is tracked in [draft PR #1](https://github.com/leoxu0507-glitch/oratrice/pull/1).
+[v0.2.0](https://github.com/leoxu0507-glitch/oratrice/releases/tag/v0.2.0) is the
+accepted local-text release for the recorded Windows configuration. It adds
+bounded multi-turn chat, portable setup, and verified real-model lifecycle
+behavior while preserving the [v0.1.0](https://github.com/leoxu0507-glitch/oratrice/releases/tag/v0.1.0)
+history.
 
-| Area | Delivered and verified scope |
+| Area | Verified scope |
 | --- | --- |
-| Core infrastructure | Provider-neutral configuration, registries, routing, facade, lifecycle, and HTTP contracts |
-| Local deployment | Fresh isolated Core/Gateway installation, generated local-only configuration, strict Doctor, dry-run, and the Windows launcher |
-| Web conversation | Bounded page-local context, New conversation, busy/error recovery, and keyboard controls; earlier real-use and injected-provider checks remain recorded separately |
-| Latest offline gate | **276 Python tests passed** (one dependency deprecation warning), plus **11 JavaScript tests passed**. [Code-candidate CI](https://github.com/leoxu0507-glitch/oratrice/actions/runs/41567738093) passed the same gates. |
-| Resumed real validation | The recorded three-attempt pass stopped for resource headroom. A later explicitly requested run with 8425.4 MiB initial RAM also stopped at the unchanged guard (255.6 MiB available); full Core readiness was not confirmed. |
-| Release blockers | Post-repair full-chain readiness, restart, model-loaded console close, and sustained-memory stability are not accepted. No stable v0.2 tag or release has been created. |
+| Core | Provider-neutral configuration, registries, routing, facade, lifecycle, and HTTP contracts |
+| Installation | Fresh isolated Python 3.13.5 Core/Gateway environments, LiteLLM 1.74.3, generated local-only configuration, strict Doctor, and dry-run |
+| Real conversation | Core API context checks and nine bundled Web UI checks, including reset, actual busy recovery, refresh, duplicate protection, and keyboard send |
+| Lifecycle | Cold readiness in 40.70 s, restart in 37.68 s, and real Ctrl+C / classic-console close cleanup; observed owned processes reaped and required ports free before the outer finalizer |
+| Sustained use | 1800 s, 24 sequential question/follow-up pairs, and 51 controller chat requests overall, all HTTP 200. Median 15.496 s, maximum 20.033 s. |
+| Offline gates | 276 Python tests (one dependency warning) and 11 JavaScript tests passed. Release checks are linked from the PR and release. |
 
-Generated profiles disable extra RAM-backed prompt caches and now default GPT
-GPU layers to `auto` on compatible llama.cpp builds. This improved recorded
-VRAM headroom but did not establish enough host RAM for the complete stack in
-the tested window. All observed owned processes were reaped by the emergency
-controller finalizer and the four required ports were free afterward; this is
-not evidence that normal Ctrl+C/window-close acceptance passed. The attempt
-cap has been reached and real testing stopped. Existing profiles retain their
-operator-selected values. Qwen-VL and cloud inference remain separate optional
-paths with no implicit cloud fallback.
+The operator explicitly chose to observe Windows available physical RAM rather
+than abort solely on that counter. It reached 77.7 MiB during sustained use,
+but the full workflow completed without a request failure or crash. Combined
+tracked private commit rose 56.1 MiB over the session; the final 13 samples
+rose 19.4 MiB, within the recorded bounds. This is a bounded 30-minute result,
+not a claim of leak-free continuous uptime or compatibility with all hardware.
+All earlier guarded stops remain in the acceptance ledger.
 
-- [Project overview](docs/PROJECT-OVERVIEW.md): architecture, milestone history,
-  and declared limitations.
-- [Next work](docs/PROJECT-OVERVIEW.md#next-work-proposed-sequence): M12 closeout
-  and proposed conversation-history, streaming, and pet-status scopes.
-- [M12 acceptance record](docs/validation/M12-RELEASE-SUMMARY.md): measurements,
-  attempt limits, repairs, and remaining evidence.
-- [v0.2 candidate notes](docs/releases/v0.2.0.md): scope and outstanding release gates.
+- [Project overview](docs/PROJECT-OVERVIEW.md): architecture, history, and limits.
+- [M12 acceptance record](docs/validation/M12-RELEASE-SUMMARY.md): criteria,
+  measurements, earlier stopped runs, and the completed real-use pass.
+- [v0.2 release notes](docs/releases/v0.2.0.md): validated scope and requirements.
+- [Next work](docs/PROJECT-OVERVIEW.md#next-work-proposed-sequence): proposed
+  conversation export/retention, streaming, and pet-status integration.
 
-The default UI is bundled at `http://127.0.0.1:8000/ui/`. OpenWebUI remains an
-optional external UI; Oratrice does not install, configure, or own it.
+The bundled same-origin UI is `http://127.0.0.1:8000/ui/`. The generated default
+profile is local-only, with no implicit cloud fallback. Qwen-VL and cloud
+inference remain optional, separately unaccepted paths. OpenWebUI is external
+and is not installed or owned by Oratrice.
 
 ## Install and configure on Windows
 

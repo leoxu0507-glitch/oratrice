@@ -387,3 +387,33 @@ The shipped application code was unchanged. The existing 276-Python/11-JavaScrip
 CI result remains offline evidence, not a pass for this experiment. R3 stays
 BLOCKED, R4 stays DEFERRED, and stable v0.2 remains unreleased. Further work
 must address concurrent-model RAM headroom before another full acceptance plan.
+
+## Final M12 acceptance under revised resource criterion (2026-11-03)
+
+The preceding resource-window attempt remains **BLOCKED under the criterion active for that attempt**. Before this separate run, the operator explicitly revised the decision rule: low available physical RAM is recorded as an observation and does not abort acceptance. This result does not retroactively change earlier dispositions or remove the recorded private-commit growth.
+
+This real run used source commit `3f9257ff18d48a06a568ed95e740a2d3d7bd6625`; no application or Core source changed for the run. GPT-OSS retained automatic GPU-layer selection and cache-RAM 0, the context remained 2048, and Gemma remained CPU-only. The private browser harness waited for the parent kill-on-close Job gate before starting Edge.
+
+The evidence is limited to the recorded host with 16 GB system RAM and an RTX 4060 Laptop GPU with 8 GB VRAM (build `b9843`), one 30-minute run, sequential requests, and short bounded context. It does not establish multi-day stability, long-context behavior, concurrent-load behavior, or Qwen or cloud-provider acceptance.
+
+### Results
+
+- Cold start reached readiness in 40.7 seconds; restart reached readiness in 37.68 seconds.
+- The controller completed 51 chat requests with 51 HTTP 200 responses. Median latency was 15.496 seconds and maximum latency was 20.033 seconds.
+- The real browser exercise completed 6 UI chat requests plus 1 held request, with all 9 checks passing and no JavaScript runtime errors. It included the expected busy response (503) and successful retry.
+- The soak completed 1800.0 seconds, 24 pairs, and 48 requests. Combined tracked private commit moved from 8384.6 to 8440.7 MiB (+56.1 MiB). Across the final 13 samples, growth and range were each 19.4 MiB, below the 64 MiB growth and 256 MiB range limits.
+- Available physical RAM reached a minimum of 77.7 MiB; under the revised criterion this was recorded and did not abort the run. Combined tracked working set moved from 10775.2 to 9063.4 MiB (-1711.8 MiB). No crash or request backlog was observed.
+- Available RAM was 8356.2 MiB at baseline and 9776.3 MiB after exit. GPU use was 733 MiB at baseline and 721 MiB after exit; free GPU memory was 7224 MiB and 7236 MiB, respectively.
+- After each normal Ctrl+C and after model-loaded WM_CLOSE, before outer guard close, the controller observed zero owned survivors and all four required ports free; the controller helper exited 0. The launcher exited with native status 3221225786, so this evidence does not establish that Python `finally` blocks or graceful hooks completed.
+
+### Updated M12 disposition
+
+| Task | Disposition | Evidence |
+| --- | --- | --- |
+| M12-R1: Reproducible acceptance procedure | **PASS** | Existing read-only preflight and focused harness checks remain valid. |
+| M12-R2: Repair configuration and baseline | **PASS** | The isolated local configuration and unchanged candidate source were used for this run. |
+| M12-R3: Restart and real console close | **PASS** | Cold readiness, restart, Ctrl+C, and model-loaded WM_CLOSE were observed; the native exit status limits the cleanup claim as recorded above. |
+| M12-R4: Bounded sustained use | **PASS** | The 30-minute sequential soak and final 13-sample plateau criteria passed. |
+| M12-R5: Release the accepted source | **Publication gate** | Exact release-commit CI and verified published assets are recorded by the v0.2.0 release and its manifest. |
+
+R1-R4 pass for the default local-text path within the host and workload limits stated above. R5 is completed only by matching release-commit CI, preserved tag history, and verified published assets; the release and its manifest are the authority for publication.
