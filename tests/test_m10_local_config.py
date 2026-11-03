@@ -101,7 +101,7 @@ def test_generated_defaults_load_and_form_a_local_only_launch_plan(tmp_path, mon
     assert router_args[router_args.index("--model") + 1] == str(files["router_model"].resolve())
     assert gpt_args[gpt_args.index("--alias") + 1] == "gpt-oss"
     assert router_args[router_args.index("--alias") + 1] == "gemma-router"
-    assert gpt_args[gpt_args.index("--gpu-layers") + 1] == "999"
+    assert gpt_args[gpt_args.index("--gpu-layers") + 1] == "auto"
     assert router_args[router_args.index("--gpu-layers") + 1] == "0"
     for args in (gpt_args, router_args):
         assert args[args.index("--cache-ram") + 1] == "0"
@@ -292,3 +292,111 @@ def test_external_python_and_gateway_overrides_remain_absolute(tmp_path):
     targets = raw["defaults"]["launcher"]["targets"]
     assert Path(targets[2]["executable_override"]) == gateway_exe.resolve()
     assert Path(targets[3]["executable_override"]) == core_python.resolve()
+
+
+def test_generated_gpt_gpu_layers_preserve_explicit_integer_values(tmp_path):
+    files = _external_files(tmp_path / "GPU layer model files")
+
+    for layers in (0, 999):
+        project_root = tmp_path / f"GPU layers {layers}"
+        _copy_templates(project_root)
+        profile_path, _ = configure_local(
+            **files,
+            gpt_gpu_layers=layers,
+            project_root=project_root,
+        )
+
+        raw_profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+        args = raw_profile["runtimes"]["gpt_oss"]["args"]
+        assert args[args.index("--gpu-layers") + 1] == str(layers)
+
+
+def test_gpu_layer_setting_rejects_invalid_python_values_without_outputs(tmp_path):
+    files = _external_files(tmp_path / "Invalid GPU layer files")
+
+    for index, value in enumerate((True, -1, 1.5, "999", "all", "Auto")):
+        project_root = tmp_path / f"Invalid GPU layer value {index}"
+        _copy_templates(project_root)
+        profile_path = project_root / "generated" / "local.yaml"
+        gateway_path = project_root / "generated" / "gateway.yaml"
+
+        try:
+            configure_local(
+                **files,
+                output=profile_path,
+                gateway_output=gateway_path,
+                gpt_gpu_layers=value,
+                project_root=project_root,
+            )
+        except ValueError as exc:
+            assert "--gpt-gpu-layers" in str(exc)
+        else:
+            raise AssertionError(f"invalid GPU layer value was accepted: {value!r}")
+        assert not profile_path.exists()
+        assert not gateway_path.exists()
+
+
+def test_cli_accepts_auto_and_explicit_gpu_layer_values(tmp_path, monkeypatch):
+    files = _external_files(tmp_path / "CLI GPU layer files")
+    monkeypatch.setenv("ORATRICE_LITELLM_MASTER_KEY", "offline-test-master-key")
+    monkeypatch.chdir(tmp_path)
+
+    for index, (value, expected) in enumerate(
+        (("auto", "auto"), ("0", "0"), ("999", "999"))
+    ):
+        project_root = tmp_path / f"CLI GPU layer value {index}"
+        _copy_templates(project_root)
+        profile_path = project_root / "generated" / "local.yaml"
+        gateway_path = project_root / "generated" / "gateway.yaml"
+        status = main(
+            [
+                "--llama-server",
+                str(files["llama_server"]),
+                "--gpt-model",
+                str(files["gpt_model"]),
+                "--router-model",
+                str(files["router_model"]),
+                "--output",
+                str(profile_path),
+                "--gateway-output",
+                str(gateway_path),
+                "--gpt-gpu-layers",
+                value,
+            ]
+        )
+        assert status == 0
+        raw_profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+        args = raw_profile["runtimes"]["gpt_oss"]["args"]
+        assert args[args.index("--gpu-layers") + 1] == expected
+
+
+def test_cli_rejects_invalid_gpu_layer_values_without_outputs(tmp_path, monkeypatch):
+    files = _external_files(tmp_path / "Invalid CLI GPU layer files")
+    monkeypatch.chdir(tmp_path)
+
+    for index, value in enumerate(("-1", "1.5", "all")):
+        profile_path = tmp_path / f"invalid-{index}" / "local.yaml"
+        gateway_path = tmp_path / f"invalid-{index}" / "gateway.yaml"
+        try:
+            main(
+                [
+                    "--llama-server",
+                    str(files["llama_server"]),
+                    "--gpt-model",
+                    str(files["gpt_model"]),
+                    "--router-model",
+                    str(files["router_model"]),
+                    "--output",
+                    str(profile_path),
+                    "--gateway-output",
+                    str(gateway_path),
+                    "--gpt-gpu-layers",
+                    value,
+                ]
+            )
+        except SystemExit as exc:
+            assert exc.code == 2
+        else:
+            raise AssertionError(f"invalid GPU layer argument was accepted: {value!r}")
+        assert not profile_path.exists()
+        assert not gateway_path.exists()

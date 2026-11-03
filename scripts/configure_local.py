@@ -118,6 +118,12 @@ def _positive_int(value: str) -> int:
     return parsed
 
 
+def _gpu_layers(value: str) -> int | str:
+    if value == "auto":
+        return value
+    return _non_negative_int(value)
+
+
 def configure_local(
     *,
     llama_server: str | Path,
@@ -128,7 +134,7 @@ def configure_local(
     core_python: str | Path | None = None,
     gateway_exe: str | Path | None = None,
     ctx_size: int = 2048,
-    gpt_gpu_layers: int = 999,
+    gpt_gpu_layers: int | str = "auto",
     threads: int = 16,
     prompt_cache_mib: int = 0,
     project_root: str | Path = PROJECT_ROOT,
@@ -150,8 +156,13 @@ def configure_local(
 
     if isinstance(ctx_size, bool) or not isinstance(ctx_size, int) or ctx_size <= 0:
         raise ValueError("--ctx-size must be a positive integer")
-    if isinstance(gpt_gpu_layers, bool) or not isinstance(gpt_gpu_layers, int) or gpt_gpu_layers < 0:
-        raise ValueError("--gpt-gpu-layers must be a non-negative integer")
+    valid_gpu_layers = gpt_gpu_layers == "auto" or (
+        isinstance(gpt_gpu_layers, int)
+        and not isinstance(gpt_gpu_layers, bool)
+        and gpt_gpu_layers >= 0
+    )
+    if not valid_gpu_layers:
+        raise ValueError("--gpt-gpu-layers must be 'auto' or a non-negative integer")
     if isinstance(threads, bool) or not isinstance(threads, int) or threads <= 0:
         raise ValueError("--threads must be a positive integer")
     if isinstance(prompt_cache_mib, bool) or not isinstance(prompt_cache_mib, int) or prompt_cache_mib < 0:
@@ -230,7 +241,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--core-python", help="Existing Core Python executable; defaults to .venv/Scripts/python.exe")
     parser.add_argument("--gateway-exe", help="Existing LiteLLM executable; defaults to .gateway-venv/Scripts/litellm.exe")
     parser.add_argument("--ctx-size", type=_positive_int, default=2048, help="Context size for both llama-server processes (default: 2048)")
-    parser.add_argument("--gpt-gpu-layers", type=_non_negative_int, default=999, help="GPT-OSS GPU layers (default: 999)")
+    parser.add_argument(
+        "--gpt-gpu-layers",
+        type=_gpu_layers,
+        default="auto",
+        help="GPT-OSS GPU layers ('auto' or a non-negative integer; default: auto)",
+    )
     parser.add_argument("--threads", type=_positive_int, default=16, help="Threads for both llama-server processes (default: 16)")
     parser.add_argument(
         "--prompt-cache-mib",

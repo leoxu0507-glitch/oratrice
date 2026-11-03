@@ -120,7 +120,13 @@ The generated profile contains only the local text chain. Its context size
 (2048), single server slot, CPU-first Gemma, GPU layers, and thread settings
 are explicit configuration, not a hardware stability guarantee. Adjust them
 with `--ctx-size`, `--gpt-gpu-layers`, and `--threads` when generating a new
-profile at a different `--output`/`--gateway-output` location. The generated
+profile at a different `--output`/`--gateway-output` location. GPT GPU layers
+now default to `auto`, letting compatible llama.cpp builds fit device memory.
+Use `--gpt-gpu-layers N` for an explicit non-negative layer count. Pinning a
+large count such as `999` can prevent automatic fitting and exhaust VRAM;
+check the installed runtime's `--help` for `--gpu-layers auto` support (checked
+with b9843). Automatic device fitting does not reserve RAM for the router or
+guarantee that both models fit the host. Existing profiles keep their values. The generated
 GPT-OSS and Gemma runtimes explicitly disable the extra RAM-backed prompt
 cache with `--cache-ram 0`. Use `--prompt-cache-mib N` to opt into a finite
 per-model budget; two runtimes can each use that amount. This does not change
