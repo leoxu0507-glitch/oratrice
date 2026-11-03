@@ -22,6 +22,10 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Generated GPT GPU layers default to `auto` instead of forcing `999`; explicit
+  non-negative counts remain supported. Compatible llama.cpp builds can fit
+  available VRAM rather than being blocked by an explicit full-offload value.
+
 - Acceptance listener checks read Windows TCP tables, avoiding false unknown
   results when closed loopback connections time out. API read failures remain
   unknown rather than being treated as free ports.
