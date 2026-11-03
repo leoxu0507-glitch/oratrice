@@ -16,6 +16,7 @@ environment variables and never logs request headers or payloads.
 from __future__ import annotations
 
 import json
+import inspect
 import time
 from collections.abc import Mapping
 from typing import Any, Iterator
@@ -61,6 +62,22 @@ def _mapping(value: Any) -> dict[str, Any]:
         merged.update({key: child for key, child in result.items() if key != "options"})
         result = merged
     return result
+
+
+def _stream_lines(lines: Any) -> Any:
+    """Request one-line reads when the response iterator supports it."""
+
+    try:
+        parameters = inspect.signature(lines).parameters.values()
+    except (TypeError, ValueError):
+        return lines()
+    if any(
+        item.name == "chunk_size" and item.kind is not inspect.Parameter.POSITIONAL_ONLY
+        or item.kind is inspect.Parameter.VAR_KEYWORD
+        for item in parameters
+    ):
+        return lines(chunk_size=1)
+    return lines()
 
 
 class LiteLLMGatewayProvider(BaseProvider):
@@ -444,7 +461,8 @@ class LiteLLMGatewayProvider(BaseProvider):
                     "LiteLLM Gateway streaming response has no iter_lines()",
                     provider=self.provider_id,
                 )
-            for line in lines():
+            received_terminal = False
+            for line in _stream_lines(lines):
                 if not line:
                     continue
                 if isinstance(line, Mapping):
@@ -455,6 +473,7 @@ class LiteLLMGatewayProvider(BaseProvider):
                         continue
                     payload_str = decoded[5:].strip() if decoded.startswith("data:") else decoded.strip()
                     if payload_str == "[DONE]":
+                        received_terminal = True
                         break
                     try:
                         data = json.loads(payload_str)
@@ -462,7 +481,14 @@ class LiteLLMGatewayProvider(BaseProvider):
                         continue
                 if not isinstance(data, Mapping):
                     continue
+                if data.get("error"):
+                    raise ProviderResponseError(
+                        "LiteLLM Gateway stream returned an upstream error",
+                        provider=self.provider_id,
+                    )
                 content, finish_reason, usage, request_id, response_model, index = self._extract_content(data)
+                if finish_reason is not None:
+                    received_terminal = True
                 if content or finish_reason is not None:
                     chunk = ChatChunk(
                         content=content,
@@ -478,6 +504,11 @@ class LiteLLMGatewayProvider(BaseProvider):
                         raw=data,
                     )
                     yield chunk.content if legacy else chunk
+            if not received_terminal:
+                raise ProviderResponseError(
+                    "LiteLLM Gateway stream ended without a completion marker",
+                    provider=self.provider_id,
+                )
         except ProviderError:
             raise
         except self._request_exceptions() as exc:

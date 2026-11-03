@@ -30,22 +30,23 @@ $pytestBaseTemp = Join-Path $pytestTempParent ([guid]::NewGuid().ToString('N'))
 & .\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp $pytestBaseTemp
 ```
 
-The Node behavior suite is an independent gate:
+The Node behavior, archive-data, and browser-store suites form one
+independent gate:
 
 ```powershell
-node --test tests/web_chat.test.cjs
+node --test tests/web_chat.test.cjs tests/conversation_data.test.cjs tests/conversation_store.test.cjs tests/stream_client.test.cjs
 ```
 
 CI uses Python 3.13 and Node 22, compiles the Python sources, then runs
 pytest and the Node gate. Record the actual local Python and Node versions
 when reporting results.
 
-M11's separate JavaScript gate uses Node's built-in test runner and VM with
-inert DOM, fetch, and timer fakes. Node is test tooling only; no frontend build
-or npm package is required. CI selects Node 22; local evidence records the
-version actually used. The Python suite checks the shared UI/API contract but
-does not spawn Node. The JS gate exercises the shipped source's conversation
-and recovery behavior; it does not substitute for an actual browser or model.
+The separate JavaScript gate uses Node's built-in test runner; no frontend
+build or npm package is required. It covers bundled chat behavior, archive
+validation and exports, and browser-store bounds and recovery. CI selects Node
+22; local evidence records the version actually used. The Python suite checks
+the shared UI/API contract but does not spawn Node. These offline tests do not
+substitute for an actual browser or model.
 
 ## Isolation rules
 
@@ -106,8 +107,11 @@ startup/shutdown acceptance.
 | --- | --- | --- |
 | M9 | `tests/test_m9_request_admission.py`, `tests/test_m9_launcher_failures.py`, `tests/test_m9_runtime_stop.py` | Request admission and launcher/runtime failure and stop-state contracts |
 | M10 | `tests/test_m10_local_config.py`, `tests/test_m10_profile_selection.py`, `tests/test_m10_doctor_paths.py`, `tests/test_m10_gateway_setup.py` | Local configuration, profile selection, doctor paths, and opt-in Gateway setup contracts |
-| M11 | `tests/test_m11_chat_contract.py`, `tests/test_m11_chat_integration.py`, `tests/test_m11_web_behavior.py`; separate Node gate: `tests/web_chat.test.cjs` | Conversation bounds, API/facade/provider integration without model or network I/O, and bundled UI behavior |
+| M11 | `tests/test_m11_chat_contract.py`, `tests/test_m11_chat_integration.py`, `tests/test_m11_web_behavior.py` | Conversation bounds, API/facade/provider integration without model or network I/O |
 | M12 / R1 | `tests/test_m12_readiness_probe.py`, `tests/test_m12_acceptance_evidence.py`, `tests/test_m12_acceptance_windows.py` | Lightweight readiness; offline evidence preparation, PID/creation-time ownership, conservative cleanup classification, and fake Windows API queries |
+| M13 | Separate Node gate: `tests/web_chat.test.cjs`, `tests/conversation_data.test.cjs`, `tests/conversation_store.test.cjs` | Bundled UI behavior and opt-in browser conversation retention, validation, recovery, and export |
+| M14 | `tests/test_m14_stream_api.py`, `tests/test_m14_provider_stream.py`; separate Node gate: `tests/stream_client.test.cjs`, `tests/web_chat.test.cjs` | Bounded SSE, shared admission through disconnect/timeout, iterator cleanup, incomplete upstream EOF, incremental display, Stop, and partial-turn exclusion |
+| M15 | `tests/test_m15_status_api.py`, `tests/test_m15_pet_client.py`, `tests/test_m15_pet_ui.py`; separate Node gate: `tests/web_chat.test.cjs` | Safe shared status, readiness caching, old-session isolation, loopback/redirect/body limits, GUI-free controller tests, offline backoff, and Web status recovery |
 
 ## Attempt budget and evidence
 

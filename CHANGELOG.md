@@ -3,6 +3,71 @@
 All notable changes to Oratrice are documented in this file. The project
 follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] - M13-M15
+
+### Added
+
+- M15 versioned `/status` for both frontends: active operation, stopped-stream
+  delivery, safe error states, and explicit-only cached readiness. Generation
+  tokens prevent late stream callbacks from changing newer operation state.
+- Independent loopback-only Tk status pet with a one-click Windows entry,
+  keyboard controls, bounded GET polling, offline recovery, and **Open chat**.
+  Closing it does not control Core or models. OpenPets 3.2.1 loopback access
+  remains unsupported; the operator chose the standalone implementation.
+- M14 optional SSE chat through `/chat/stream`, incremental safe text display,
+  and keyboard-accessible Stop. Ordinary `/chat` and M13 conversation storage
+  remain available. Interrupted turns keep their draft and partial label but
+  never enter successful-turn history, saves, or exports.
+- Shared chat/route/stream admission through provider execution and cleanup,
+  with bounded event buffering, delivery deadlines, and slow-client handling.
+  Disconnect/Stop ends delivery while the worker drains upstream output;
+  it does not claim to cancel inference.
+- Explicit unsupported-stream errors and deterministic provider iterator
+  cleanup. SSE adapters reject EOF without a completion marker and use small
+  reads to avoid buffering early text behind larger network chunks.
+- Web conversation budget feedback using the existing UTF-8/message limits,
+  and visible incomplete-reply status when a provider reports `length`.
+- UTF-8 Markdown and versioned JSON downloads containing successful visible
+  turns and incomplete-reply metadata, without internal provider payloads.
+- Explicit opt-in browser history with open/delete/clear controls: at most
+  20 conversations, 1 MiB total, and 128 KiB per record. Page-memory mode
+  remains the default. Core, Router, and API remain stateless.
+- Bounded Web Locks, revision checks, draft protection, and recovery for
+  storage refusal, quota errors, malformed data, stale tabs, and archives
+  exceeding the unchanged API context budget. New conversation commits its
+  reload selection before clearing the visible page.
+
+### Validation
+
+- M15 local gates passed 86 targeted Python tests, the full 372-test suite,
+  compilation, and 63 JavaScript tests. A thousand-failure offline test checks
+  backoff without counter overflow. Six actual Tk/Edge/API workflows passed
+  with an injected provider: consistent states, stopped-stream draining,
+  button URL dispatch, pet/Core independence, and API loss/restart/reconnect.
+  Polling triggered no model/provider-health calls. The one-click source
+  bundle launched from a path containing spaces and its GUI closed normally
+  before outer cleanup. M15 did not repeat real-model or soak acceptance.
+- M14 local gates passed 57 targeted Python tests, the full 305-test Python
+  suite, Python compilation, and 56 JavaScript tests. Seven actual Edge
+  workflows with an injected provider covered streaming, Stop, recovery, and
+  M13 persistence integration. Slow send/queue, disconnect, and deadline cases
+  passed offline.
+- Actual local Gemma/LiteLLM/GPT-OSS acceptance passed: first visible text
+  22.973 s, first answer complete 25.000 s, contextual follow-up, Stop/busy/
+  recovery, and a completed stream after restart. Cold/restart readiness was
+  42.223 / 37.775 s. Both Ctrl+C shutdowns reaped owned identities and freed
+  ports before outer cleanup. This bounded pass does not repeat the M12 soak.
+- M13's original separate JavaScript gate passed 44 tests; targeted offline
+  Python UI/API checks passed 33 tests and the full offline Python suite passed
+  276 tests. CI now includes the data and storage modules in its Node gate.
+- Actual Edge acceptance passed 12 workflows through the real API/Core with
+  an injected deterministic provider, including actual downloads, reload,
+  cross-tab events, lock timeout/retry, and failure recovery. Nine UI chat
+  requests completed with no browser runtime exceptions. Owned test processes
+  were reaped and the test listener closed.
+- M13 did not rerun model performance, lifecycle, or sustained-use acceptance.
+  The v0.2.0 real-model record remains separate; published tags are unchanged.
+
 ## [0.2.0] - 2026-11-03
 
 ### Added

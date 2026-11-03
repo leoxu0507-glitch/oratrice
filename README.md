@@ -8,8 +8,8 @@
 Oratrice is a local-first, provider-neutral core for a personal AI assistant.
 Its bundled Web client supports bounded multi-turn text conversations through
 a stable Core API. Local model runtimes, gateways, and explicitly enabled cloud
-providers stay replaceable behind configuration and adapter contracts. Future
-desktop-pet and command-line frontends can use the same API.
+providers stay replaceable behind configuration and adapter contracts. The
+standalone status pet and future command-line frontends use the same API.
 
 The project is built around one rule: orchestration belongs in the Core, model
 selection belongs in the Router, and model-specific transport belongs behind a
@@ -80,13 +80,69 @@ All earlier guarded stops remain in the acceptance ledger.
 - [M12 acceptance record](docs/validation/M12-RELEASE-SUMMARY.md): criteria,
   measurements, earlier stopped runs, and the completed real-use pass.
 - [v0.2 release notes](docs/releases/v0.2.0.md): validated scope and requirements.
-- [Next work](docs/PROJECT-OVERVIEW.md#next-work-proposed-sequence): proposed
-  conversation export/retention, streaming, and pet-status integration.
+- [Roadmap](docs/PROJECT-OVERVIEW.md#next-work-proposed-sequence): completed
+  M13-M15 conversation, streaming, and status work, plus remaining proposals.
 
 The bundled same-origin UI is `http://127.0.0.1:8000/ui/`. The generated default
 profile is local-only, with no implicit cloud fallback. Qwen-VL and cloud
 inference remain optional, separately unaccepted paths. OpenWebUI is external
 and is not installed or owned by Oratrice.
+
+### Development: M13-M15 conversation and status controls (unreleased)
+
+The current source adds a visible UTF-8 context budget, incomplete-reply
+labels, and local Markdown/JSON export of successful turns. These additions
+are not included in the existing v0.2.0 release assets.
+
+Chat remains page-only by default. Enable **Automatically save chats in this
+browser** to retain conversations across refreshes and browser restarts.
+Saved chats can be opened, deleted, or cleared. Turning saving off retains
+existing records until deletion; exports provide a portable backup.
+
+Retention uses unencrypted browser `localStorage`, scoped to the exact
+origin and browser profile. For example, `localhost` and `127.0.0.1` do not
+share records. It is limited to 20 conversations, 1 MiB total serialized
+data, and 128 KiB per record. Browser Web Locks are required for writes;
+page-only chat and export remain available if saving fails. The interface
+reports quota, corruption, and cross-tab conflicts without silently evicting
+conversations or overwriting another tab's edits.
+
+Stored history does not enlarge the model context. The existing 12-prior-message,
+1536-unit input budget and 256-token reply cap remain in force. An archive
+over those limits opens for reading/export; start a new conversation to chat.
+No model Memory, automatic summary, cloud storage, or transcript import is added.
+See the [browser data contract](docs/architecture/API.md) for exact limits and
+deletion/recovery behavior.
+
+Enable **Stream replies as they arrive** for incremental text through
+`POST /chat/stream`. This page-local option is off by default; ordinary `/chat`
+remains available. **Stop reply** ends display immediately and preserves the
+draft. The model may continue working, so Oratrice can remain busy until that
+operation ends. Interrupted text is visibly partial and excluded from future
+context, saved conversations, and exports. A normally completed reply with a
+length-limit marker remains labeled incomplete, as in M13.
+
+M14's local gates passed 305 Python and 56 JavaScript tests. A real local
+Gemma/LiteLLM/GPT-OSS browser pass verified streamed text, follow-ups,
+Stop/busy/recovery, and restart. In its first request, visible text began at
+22.973 s and the answer completed at 25.000 s; streaming does not remove the
+wait before the first text. See the [M14 evidence](docs/PROJECT-OVERVIEW.md#m14-incremental-replies-and-truthful-stop-behavior-implemented-unreleased)
+for environment and scope. These are local development checks, not a new
+published release or remote CI result.
+
+M15 adds an independent status pet. Double-click `Start-Oratrice-Pet.cmd`, or
+run `& .\.venv\Scripts\python.exe -m frontends.pet`. It shows service status
+and offers **Open chat**; conversation stays in the Web UI. Closing the pet
+leaves Core and models running. It uses standard-library Tk and a validated
+loopback origin. See the [pet guide](frontends/pet/README.md) for controls.
+
+Both frontends now read `GET /status`, including work continuing after Web
+Stop. M15 local checks passed 372 Python and 63 JavaScript tests, actual
+Tk/Edge/API integration with an injected provider, and a portable one-click
+launch. The M14 real-model record remains separate. OpenPets integration is
+deferred because the installed 3.2.1 plugin host rejects loopback HTTP access;
+the operator selected this standalone companion. Existing OpenPets files and
+settings were not modified.
 
 ## Install and configure on Windows
 
@@ -189,17 +245,19 @@ The API binds to loopback by default:
 GET  http://127.0.0.1:8000/live
 GET  http://127.0.0.1:8000/ready
 GET  http://127.0.0.1:8000/health
+GET  http://127.0.0.1:8000/status
 POST http://127.0.0.1:8000/chat
+POST http://127.0.0.1:8000/chat/stream
 POST http://127.0.0.1:8000/route
 GET  http://127.0.0.1:8000/ui/
 ```
 
-The bundled UI is a deliberately thin same-origin client.  It calls `/live`
-and `/ready` for status and `/chat` for normal conversation; it does not call
-`/route` for a normal chat, persist conversation state across reloads, or contain model,
-provider, memory, tool, agent, voice, vision, cloud, or streaming logic.  The
-desktop pet can consume status/notification information later without
-duplicating the Core contract.
+The bundled UI is a same-origin client for `/status`, ordinary `/chat`, and
+optional `/chat/stream`. Page-only history remains the default, with opt-in
+browser retention and exports in the development source. The status pet reads
+`/status` and opens `/ui/`. Neither frontend selects providers, starts models,
+or implements model Memory, Tools, or Agents. `/live`, `/ready`, and `/health`
+retain their existing diagnostic contracts.
 
 Example chat request:
 

@@ -29,29 +29,37 @@ def test_web_ui_and_assets_are_served_without_application_startup():
         entry = client.get("/ui/")
         script = client.get("/ui/app.js")
         styles = client.get("/ui/styles.css")
+        data = client.get("/ui/conversation-data.js")
+        store = client.get("/ui/conversation-store.js")
+        stream = client.get("/ui/stream-client.js")
 
     assert root.status_code in {200, 307, 308}
     assert entry.status_code == 200
     assert "Oratrice" in entry.text
     assert script.status_code == 200
     assert "ENDPOINTS" in script.text
+    assert data.status_code == 200
+    assert store.status_code == 200
+    assert "OratriceConversationData" in data.text
+    assert "OratriceConversationStore" in store.text
+    assert stream.status_code == 200
+    assert "OratriceStreamClient" in stream.text
     assert styles.status_code == 200
     assert "--bg" in styles.text
     assert factory_calls == []
 
 
-def test_web_ui_javascript_is_same_origin_and_has_no_unsafe_or_stateful_hooks():
+def test_web_ui_javascript_is_same_origin_and_has_no_unsafe_hooks():
     source = (WEB_ROOT / "app.js").read_text(encoding="utf-8")
 
     absolute_paths = set(re.findall(r"[\"'](/[^\"']*)[\"']", source))
-    assert absolute_paths == {"/live", "/ready", "/chat"}
+    assert absolute_paths == {"/status", "/chat", "/chat/stream"}
     assert "/route" not in source
 
     forbidden = (
         "innerHTML",
         "insertAdjacentHTML",
         "eval(",
-        "localStorage",
         "sessionStorage",
         "console.",
     )

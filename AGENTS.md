@@ -17,13 +17,21 @@ canonical Windows checkout used by the launcher and validation records is
 - `config/profiles/live.yaml` is the declarative live composition source.
   Loading it validates references and expands environment values but does not
   start a process or contact a provider.
-- The repository-bundled thin UI is served by the Core API at `/ui/` and is the
-  default launcher destination after `/live` succeeds. It is a same-origin
-  client for `/live`, `/ready`, and `/chat`; it does not own routing,
-  persistence, models, tools, or provider logic.
+- The repository-bundled thin UI is served by the Core API at `/ui/` and is
+  the default launcher destination after `/live` succeeds. It is a same-origin
+  client for `/status`, `/chat`, and `/chat/stream`. It owns explicit, bounded,
+  off-by-default browser-profile conversation retention and export; Core,
+  Router, and API remain stateless for conversations. It does not own routing,
+  models, tools, or provider logic.
 - OpenWebUI remains an external optional UI. A copied profile may probe/open an
   already healthy external UI, but Oratrice does not install, configure, or own
   its process.
+- M15's standalone `frontends/pet/` is an independent loopback API client. It
+  reads only `/status` and opens the same origin's `/ui/` on user activation.
+  It never starts or stops Core/models, handles prompts, or imports concrete
+  providers. Tk window creation belongs only to its explicit entry point.
+  The installed OpenPets 3.2.1 SDK cannot consume the loopback API; that
+  integration remains deferred following the operator's standalone choice.
 
 ## Windows commands used by this project
 
@@ -55,13 +63,28 @@ python -B -m pytest -q -p no:cacheprovider tests/test_m5_release_gate.py
 
 ## Bounded validation evidence
 
-- M11 conversation state belongs to the in-memory Web UI. `/chat` accepts
-  optional complete text `history` pairs; omitting it preserves legacy calls.
-  The API owns request/context bounds, Core preserves roles for the provider,
-  and Router remains decision-only. No persistent memory or automatic trimming.
-- M11 JavaScript behavior tests run separately with
-  `node --test tests/web_chat.test.cjs`; no npm dependency or frontend build.
+- M11/M13.1 conversation history remains request-scoped: `/chat` accepts
+  optional complete text `history` pairs, and omitting it preserves legacy
+  calls. Core preserves roles for the provider, and Router remains
+  decision-only. The bundled UI is page-only by default and may use bounded,
+  explicit opt-in same-origin browser storage and export. API, Core, and
+  Router retain no conversation state. Do not silently trim messages or evict
+  stored conversations.
+- JavaScript behavior, archive-data, and browser-store tests run separately
+  with `node --test tests/web_chat.test.cjs tests/conversation_data.test.cjs
+  tests/conversation_store.test.cjs tests/stream_client.test.cjs`; no npm dependency or frontend build.
   Keep pytest free of new Node subprocesses and model/service startup.
+- M14 streaming is opt-in in the bundled UI. Stop ends HTTP delivery, not
+  guaranteed inference. One worker owns stream setup, iteration, and close;
+  it drains discarded output after disconnect and keeps the shared
+  chat/route admission slot until its work and cleanup end. Never close an
+  executing provider generator from another thread. Interrupted turns stay
+  visibly partial and do not enter context, local retention, or exports.
+- M15 `/status` tracks the actual shared operation slot, including stream
+  draining after Stop. Late callbacks carry an admission generation token.
+  Readiness uses only an explicit read-only checker, a five-second cache,
+  single-flight probes, and bounded stale results. Never fall back to
+  `facade.health()` from status polling or expose prompts/provider internals.
 - M10 adds generated `config/profiles/local.yaml` and `config/gateway.local.yaml`;
   these are ignored operator files. Service entry points prefer the local
   profile when present, otherwise the historical live profile. Templates and

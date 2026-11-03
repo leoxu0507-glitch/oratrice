@@ -35,11 +35,13 @@ jobs:
       - name: Compile Python sources
         run: >-
           python -m compileall -q
-          core entities providers router launcher oratrice_api scripts
+          core entities providers router launcher oratrice_api scripts frontends/pet
 
       - name: Run the full offline suite
         run: python -m pytest -q -p no:cacheprovider
 
-      - name: Run Web UI behavior tests
-        run: node --test tests/web_chat.test.cjs
+      - name: Run Web UI conversation tests
+        run: >-
+          node --test tests/web_chat.test.cjs tests/conversation_data.test.cjs
+          tests/conversation_store.test.cjs tests/stream_client.test.cjs
 

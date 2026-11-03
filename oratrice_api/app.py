@@ -13,7 +13,6 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import inspect
 from pathlib import Path
-from threading import Lock
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -35,6 +34,8 @@ from .contracts import (
 )
 from .errors import error_payload, status_for_error, validation_payload
 from .conversation import MAX_CHAT_BODY_BYTES, MAX_REPLY_TOKENS, context_error
+from .streaming import BoundedSSEStreamingResponse, StreamSession
+from .status import OperationStatusTracker, ReadinessCache, status_payload
 
 
 ApplicationFactory = Callable[..., Any]
@@ -69,7 +70,11 @@ class _ChatBodyLimit:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or scope.get("method") != "POST" or scope.get("path") != "/chat":
+        if (
+            scope["type"] != "http"
+            or scope.get("method") != "POST"
+            or scope.get("path") not in {"/chat", "/chat/stream"}
+        ):
             await self.app(scope, receive, send)
             return
 
@@ -502,10 +507,9 @@ def create_api(
     is called lazily on lifespan entry with ``auto_start=False`` and its
     resulting application is closed exactly once on lifespan exit.  A
     ``readiness_checker`` (or the descriptive ``readiness_provider`` alias)
-    can supply a precomputed health report/classification for ``/ready``;
-    otherwise the existing facade health port is queried in configured-report
-    mode, which represents lazy resources as ``unknown`` without constructing
-    or starting them.
+    can supply a precomputed health report/classification for ``/ready`` and
+    the bounded ``/status`` snapshot. ``/ready`` retains its configured-report
+    facade fallback; ``/status`` intentionally uses explicit sources only.
     """
 
     state: dict[str, Any] = {
@@ -517,8 +521,9 @@ def create_api(
         # is intentionally scoped to this application instance; multiple
         # ASGI workers remain independent and must be bounded by the process
         # supervisor.
-        "request_admission": Lock(),
+        "request_admission": OperationStatusTracker(),
     }
+    readiness_cache = ReadinessCache(ttl_seconds=5.0)
 
     @asynccontextmanager
     async def lifespan(api: FastAPI):
@@ -546,6 +551,7 @@ def create_api(
         lifespan=lifespan,
     )
     api.state.application = application
+    api.state.status_tracker = state["request_admission"]
     api.add_middleware(_ChatBodyLimit)
 
     # StaticFiles only registers an ASGI mount; it does not open a socket,
@@ -593,6 +599,63 @@ def create_api(
             },
         )
 
+    def explicit_readiness_source(application_value: Any, facade: Any) -> Any:
+        """Find an explicitly supplied readiness source without facade health fallback."""
+
+        checker_value = readiness_checker if readiness_checker is not None else readiness_provider
+        if checker_value is None:
+            checker_value = getattr(application_value, "readiness_checker", None)
+        if checker_value is None:
+            checker_value = getattr(application_value, "readiness_provider", None)
+        if checker_value is None:
+            checker_value = getattr(facade, "readiness_checker", None)
+        if checker_value is None:
+            checker_value = getattr(facade, "readiness_provider", None)
+        return checker_value
+
+    def status_readiness(request: Request) -> str:
+        """Sample only an explicit read-only readiness source, with caching."""
+
+        try:
+            application_value = _application_from_request(request)
+            facade = _facade(application_value)
+            checker_value = explicit_readiness_source(application_value, facade)
+        except Exception:
+            # Treat unavailable application configuration as a failed explicit
+            # readiness check, without publishing the exception's details.
+            def failed_probe() -> bool:
+                raise RuntimeError("readiness source unavailable")
+
+            return readiness_cache.sample(status_readiness, failed_probe)
+
+        if checker_value is None:
+            return readiness_cache.sample(None)
+
+        def probe() -> bool:
+            checker = _checker_callable(checker_value)
+            if checker is None:
+                # A static HealthReport/mapping is an explicitly supplied
+                # readiness result and requires no facade operation.
+                report, metadata = _coerce_checker_result(checker_value)
+            else:
+                report, metadata = _coerce_checker_result(
+                    _invoke_checker(
+                        checker,
+                        request=request,
+                        application=application_value,
+                        facade=facade,
+                        request_id=str(uuid4()),
+                    )
+                )
+            status_code, _payload = _ready_payload(
+                report,
+                request_id=str(uuid4()),
+                metadata=metadata,
+            )
+            return status_code == 200
+
+        return readiness_cache.sample(checker_value, probe)
+
     @api.post("/chat")
     def chat(payload: ChatRequest, request: Request):
         limit_error = context_error(payload)
@@ -600,7 +663,7 @@ def create_api(
             return JSONResponse(status_code=422, content=limit_error)
         request_id = str(uuid4())
         admission = state["request_admission"]
-        if not admission.acquire(blocking=False):
+        if not admission.acquire(blocking=False, operation="chat"):
             return busy_response("chat", request_id)
         try:
             application_value = _application_from_request(request)
@@ -620,8 +683,12 @@ def create_api(
                 # Handling the final unknown case at the endpoint keeps the
                 # JSON envelope deterministic for both ASGI servers and
                 # TestClient.
+                admission.mark_failed()
                 return JSONResponse(status_code=500, content=error_payload(exc))
             return serialise_chat_response(response)
+        except Exception:
+            admission.mark_failed()
+            raise
         finally:
             # The guard covers the actual blocking facade call.  If a client
             # disconnects, the worker still owns this slot until that call
@@ -629,11 +696,60 @@ def create_api(
             # an abandoned request.
             admission.release()
 
+    @api.post("/chat/stream")
+    async def stream_chat(payload: ChatRequest, request: Request):
+        """Stream safe text deltas while one worker owns the provider iterator."""
+
+        limit_error = context_error(payload)
+        if limit_error is not None:
+            return JSONResponse(status_code=422, content=limit_error)
+        if payload.max_tokens is not None and not 1 <= payload.max_tokens <= MAX_REPLY_TOKENS:
+            return JSONResponse(status_code=422, content={"error": {
+                "code": "invalid_stream_request",
+                "message": f"Streaming max_tokens must be between 1 and {MAX_REPLY_TOKENS}.",
+            }})
+
+        request_id = str(uuid4())
+        admission = state["request_admission"]
+        if not admission.acquire(blocking=False, operation="stream"):
+            return busy_response("chat", request_id)
+
+        try:
+            application_value = _application_from_request(request)
+            facade = _facade(application_value)
+            if not callable(getattr(facade, "stream", None)):
+                admission.mark_failed()
+                admission.release()
+                return JSONResponse(status_code=501, content={"error": {
+                    "code": "stream_unsupported",
+                    "message": "The application does not support streaming.",
+                    "request_id": request_id,
+                }})
+            values = payload.model_dump(exclude_none=True)
+            values["max_tokens"] = payload.max_tokens or MAX_REPLY_TOKENS
+            model = values.pop("model", None)
+            message = values.pop("message")
+            session = StreamSession(
+                facade,
+                admission,
+                request_id,
+                model,
+                message,
+                values,
+                status_token=admission.current_token(),
+            )
+            session.start()
+        except Exception as exc:
+            admission.mark_failed()
+            admission.release()
+            return JSONResponse(status_code=500, content=error_payload(exc, request_id=request_id))
+        return BoundedSSEStreamingResponse(session)
+
     @api.post("/route")
     def route(payload: RouteRequest, request: Request):
         request_id = str(uuid4())
         admission = state["request_admission"]
-        if not admission.acquire(blocking=False):
+        if not admission.acquire(blocking=False, operation="route"):
             return busy_response("route", request_id)
         try:
             application_value = _application_from_request(request)
@@ -651,11 +767,15 @@ def create_api(
             except CoreError:
                 raise
             except Exception as exc:
+                admission.mark_failed()
                 return JSONResponse(
                     status_code=500,
                     content=error_payload(exc, request_id=request_id),
                 )
             return serialise_route_decision(decision, request_id=request_id)
+        except Exception:
+            admission.mark_failed()
+            raise
         finally:
             admission.release()
 
@@ -671,6 +791,27 @@ def create_api(
             request_id=request_id,
             checked_at=_now_iso(),
             details={"mode": "liveness"},
+        )
+
+    @api.get("/status")
+    def status(request: Request):
+        """Return a bounded, provider-neutral operational snapshot."""
+
+        admission = state["request_admission"]
+        operation_snapshot = admission.snapshot()
+        if operation_snapshot.busy or operation_snapshot.operation_failed:
+            return JSONResponse(
+                status_code=200,
+                content=status_payload(operation_snapshot, None),
+            )
+
+        readiness = status_readiness(request)
+        # An operation may have been admitted while readiness was sampled.
+        # Prefer its immediately observable busy state in the response.
+        operation_snapshot = admission.snapshot()
+        return JSONResponse(
+            status_code=200,
+            content=status_payload(operation_snapshot, readiness),
         )
 
     @api.get("/ready")
