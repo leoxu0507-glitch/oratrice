@@ -6,7 +6,9 @@ import on non-Windows systems.
 from __future__ import annotations
 
 import ctypes
+import ipaddress
 import os
+import socket
 from ctypes import wintypes
 
 
@@ -17,6 +19,18 @@ _STILL_ACTIVE = 259
 _ERROR_INVALID_PARAMETER = 87
 _ERROR_NO_MORE_FILES = 18
 _MAX_PATH = 260
+
+# IP Helper TCP table constants and bounds. The family values are Windows
+# AF_* values, not the platform-dependent values exposed by socket.
+_AF_INET = 2
+_AF_INET6 = 23
+_TCP_TABLE_OWNER_PID_LISTENER = 3
+_TCP_STATE_LISTEN = 2
+_ERROR_INSUFFICIENT_BUFFER = 122
+_ERROR_INVALID_DATA = 13
+_MAX_TCP_TABLE_BYTES = 16 * 1024 * 1024
+_MAX_TCP_TABLE_ATTEMPTS = 3
+_DWORD = ctypes.c_uint32
 
 
 class _ProcessMemoryCounters(ctypes.Structure):
@@ -64,7 +78,36 @@ class _ProcessEntry32W(ctypes.Structure):
     ]
 
 
+class _TcpRowOwnerPid(ctypes.Structure):
+    """MIB_TCPROW_OWNER_PID, with Windows DWORD-sized fields."""
+
+    _fields_ = [
+        ("dwState", _DWORD),
+        ("dwLocalAddr", _DWORD),
+        ("dwLocalPort", _DWORD),
+        ("dwRemoteAddr", _DWORD),
+        ("dwRemotePort", _DWORD),
+        ("dwOwningPid", _DWORD),
+    ]
+
+
+class _Tcp6RowOwnerPid(ctypes.Structure):
+    """MIB_TCP6ROW_OWNER_PID, in the order declared by iphlpapi.h."""
+
+    _fields_ = [
+        ("ucLocalAddr", ctypes.c_ubyte * 16),
+        ("dwLocalScopeId", _DWORD),
+        ("dwLocalPort", _DWORD),
+        ("ucRemoteAddr", ctypes.c_ubyte * 16),
+        ("dwRemoteScopeId", _DWORD),
+        ("dwRemotePort", _DWORD),
+        ("dwState", _DWORD),
+        ("dwOwningPid", _DWORD),
+    ]
+
+
 _API = None
+_LISTENER_API = None
 
 
 def _windows_api():
@@ -343,3 +386,148 @@ def memory_snapshot() -> dict:
         "total_physical_bytes": int(status.ullTotalPhys),
         "available_commit_bytes": int(status.ullAvailPageFile),
     }
+
+
+def _listener_windows_api():
+    """Load IP Helper only when a listener snapshot is requested."""
+    global _LISTENER_API
+    if os.name != "nt":
+        raise OSError("Windows required")
+
+    if _LISTENER_API is None:
+        iphlpapi = ctypes.WinDLL("iphlpapi", use_last_error=True)
+        get_table = iphlpapi.GetExtendedTcpTable
+        get_table.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(_DWORD),
+            ctypes.c_int32,
+            _DWORD,
+            ctypes.c_int32,
+            _DWORD,
+        ]
+        get_table.restype = _DWORD
+        _LISTENER_API = iphlpapi
+
+    return _LISTENER_API
+
+
+def _tcp_table_error(error_code: int, message: str) -> OSError:
+    return OSError(int(error_code), message)
+
+
+def _checked_tcp_table_size(size: int) -> int:
+    if size < ctypes.sizeof(_DWORD):
+        raise _tcp_table_error(
+            _ERROR_INVALID_DATA, "GetExtendedTcpTable returned an invalid size"
+        )
+    if size > _MAX_TCP_TABLE_BYTES:
+        raise _tcp_table_error(
+            _ERROR_INSUFFICIENT_BUFFER,
+            "GetExtendedTcpTable table exceeds the 16 MiB safety limit",
+        )
+    return size
+
+
+def _read_tcp_listener_table(
+    api, family: int, row_type
+) -> list[dict[str, str | int]]:
+    """Read one owner-PID listener table, retrying bounded table growth."""
+    required_size = _DWORD(0)
+    result = api.GetExtendedTcpTable(
+        None,
+        ctypes.byref(required_size),
+        0,
+        family,
+        _TCP_TABLE_OWNER_PID_LISTENER,
+        0,
+    )
+    if result == 0 and required_size.value == 0:
+        return []
+    if result not in (0, _ERROR_INSUFFICIENT_BUFFER):
+        raise _tcp_table_error(
+            result, "GetExtendedTcpTable size query failed"
+        )
+
+    allocation_size = _checked_tcp_table_size(int(required_size.value))
+    row_size = ctypes.sizeof(row_type)
+    header_size = ctypes.sizeof(_DWORD)
+
+    for _ in range(_MAX_TCP_TABLE_ATTEMPTS):
+        buffer = ctypes.create_string_buffer(allocation_size)
+        buffer_size = _DWORD(allocation_size)
+        result = api.GetExtendedTcpTable(
+            buffer,
+            ctypes.byref(buffer_size),
+            0,
+            family,
+            _TCP_TABLE_OWNER_PID_LISTENER,
+            0,
+        )
+        if result == 0:
+            returned_size = int(buffer_size.value)
+            if returned_size > allocation_size:
+                raise _tcp_table_error(
+                    _ERROR_INVALID_DATA,
+                    "GetExtendedTcpTable returned a size larger than its buffer",
+                )
+            readable_size = returned_size or allocation_size
+            if readable_size < header_size:
+                raise _tcp_table_error(
+                    _ERROR_INVALID_DATA,
+                    "GetExtendedTcpTable returned a truncated table header",
+                )
+
+            entry_count = int(_DWORD.from_buffer(buffer).value)
+            table_size = header_size + entry_count * row_size
+            if table_size > readable_size:
+                raise _tcp_table_error(
+                    _ERROR_INVALID_DATA,
+                    "GetExtendedTcpTable returned a truncated row table",
+                )
+
+            listeners = []
+            for index in range(entry_count):
+                offset = header_size + index * row_size
+                row = row_type.from_buffer(buffer, offset)
+                if int(row.dwState) != _TCP_STATE_LISTEN:
+                    continue
+
+                if family == _AF_INET:
+                    address_bytes = ctypes.string_at(
+                        ctypes.addressof(row) + row_type.dwLocalAddr.offset, 4
+                    )
+                    address = str(ipaddress.IPv4Address(address_bytes))
+                else:
+                    address_bytes = bytes(row.ucLocalAddr)
+                    address = str(ipaddress.IPv6Address(address_bytes))
+                    scope_id = int(row.dwLocalScopeId)
+                    if scope_id:
+                        address = f"{address}%{scope_id}"
+
+                listeners.append(
+                    {
+                        "address": address,
+                        "port": socket.ntohs(int(row.dwLocalPort) & 0xFFFF),
+                        "pid": int(row.dwOwningPid),
+                    }
+                )
+            return listeners
+
+        if result != _ERROR_INSUFFICIENT_BUFFER:
+            raise _tcp_table_error(
+                result, "GetExtendedTcpTable listener query failed"
+            )
+        allocation_size = _checked_tcp_table_size(int(buffer_size.value))
+
+    raise _tcp_table_error(
+        _ERROR_INSUFFICIENT_BUFFER,
+        "TCP listener table kept changing after three buffer attempts",
+    )
+
+
+def listener_snapshot() -> list[dict[str, str | int]]:
+    """Return IPv4 and IPv6 TCP listeners as address, port, and owning PID."""
+    api = _listener_windows_api()
+    return _read_tcp_listener_table(
+        api, _AF_INET, _TcpRowOwnerPid
+    ) + _read_tcp_listener_table(api, _AF_INET6, _Tcp6RowOwnerPid)

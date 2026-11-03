@@ -22,6 +22,10 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Acceptance listener checks read Windows TCP tables, avoiding false unknown
+  results when closed loopback connections time out. API read failures remain
+  unknown rather than being treated as free ports.
+
 - M12 readiness uses the lightweight Core `/live` probe, avoiding expensive
   provider health calls during periodic UI status polling.
 - GPT-OSS and Gemma explicitly disable extra RAM-backed prompt caches by

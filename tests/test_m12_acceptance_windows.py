@@ -1,6 +1,8 @@
 """Offline tests for the Windows acceptance evidence helpers."""
 
 import ctypes
+import ipaddress
+import socket
 from ctypes import wintypes
 
 import pytest
@@ -255,3 +257,182 @@ def test_memory_snapshot_maps_windows_memory_counters(monkeypatch):
         "total_physical_bytes": 4000,
         "available_commit_bytes": 2000,
     }
+
+
+def _tcp_row(row_type, address, port, pid, *, scope_id=0):
+    row = row_type()
+    row.dwState = windows._TCP_STATE_LISTEN
+    packed_address = ipaddress.ip_address(address).packed
+    address_field = "dwLocalAddr" if len(packed_address) == 4 else "ucLocalAddr"
+    ctypes.memmove(
+        ctypes.addressof(row) + getattr(row_type, address_field).offset,
+        packed_address,
+        len(packed_address),
+    )
+    if len(packed_address) == 16:
+        row.dwLocalScopeId = scope_id
+    row.dwLocalPort = socket.htons(port)
+    row.dwOwningPid = pid
+    return bytes(row)
+
+
+def _tcp_table(*rows):
+    return bytes(windows._DWORD(len(rows))) + b"".join(rows)
+
+
+class FakeIphlpapi:
+    def __init__(
+        self,
+        tables,
+        *,
+        errors=None,
+        initial_size_overrides=None,
+        growth_retries=None,
+    ):
+        self.tables = dict(tables)
+        self.errors = dict(errors or {})
+        self.initial_size_overrides = dict(initial_size_overrides or {})
+        self.growth_retries = dict(growth_retries or {})
+        self.calls = []
+        self.free_calls = []
+        self.GetExtendedTcpTable = self.get_extended_tcp_table
+        self.FreeMibTable = self.free_mib_table
+
+    def get_extended_tcp_table(
+        self, table_pointer, size_pointer, ordered, family, table_class, reserved
+    ):
+        size = ctypes.cast(
+            size_pointer, ctypes.POINTER(windows._DWORD)
+        ).contents
+        self.calls.append(
+            (
+                table_pointer is None,
+                family,
+                int(size.value),
+                ordered,
+                table_class,
+                reserved,
+            )
+        )
+        if family in self.errors:
+            return self.errors[family]
+
+        table = self.tables.get(family, _tcp_table())
+        if table_pointer is None:
+            size.value = self.initial_size_overrides.get(family, len(table))
+            return windows._ERROR_INSUFFICIENT_BUFFER
+
+        remaining_growth = self.growth_retries.get(family, 0)
+        if remaining_growth:
+            self.growth_retries[family] = remaining_growth - 1
+            size.value = max(int(size.value) + 1, len(table) + 1)
+            return windows._ERROR_INSUFFICIENT_BUFFER
+
+        if size.value < len(table):
+            size.value = len(table)
+            return windows._ERROR_INSUFFICIENT_BUFFER
+
+        ctypes.memmove(table_pointer, table, len(table))
+        size.value = len(table)
+        return 0
+
+    def free_mib_table(self, *args):
+        self.free_calls.append(args)
+
+
+def _install_fake_iphlpapi(monkeypatch, api):
+    monkeypatch.setattr(windows, "_listener_windows_api", lambda: api)
+
+
+def test_listener_snapshot_reads_ipv4_and_ipv6_owner_pid_rows(monkeypatch):
+    api = FakeIphlpapi(
+        {
+            windows._AF_INET: _tcp_table(
+                _tcp_row(windows._TcpRowOwnerPid, "0.0.0.0", 8000, 41),
+                _tcp_row(windows._TcpRowOwnerPid, "127.0.0.1", 8080, 42),
+            ),
+            windows._AF_INET6: _tcp_table(
+                _tcp_row(windows._Tcp6RowOwnerPid, "::1", 8090, 43)
+            ),
+        }
+    )
+    _install_fake_iphlpapi(monkeypatch, api)
+
+    assert windows.listener_snapshot() == [
+        {"address": "0.0.0.0", "port": 8000, "pid": 41},
+        {"address": "127.0.0.1", "port": 8080, "pid": 42},
+        {"address": "::1", "port": 8090, "pid": 43},
+    ]
+    assert [call[1] for call in api.calls if call[0]] == [
+        windows._AF_INET,
+        windows._AF_INET6,
+    ]
+    assert all(
+        call[3:] == (0, windows._TCP_TABLE_OWNER_PID_LISTENER, 0)
+        for call in api.calls
+    )
+    assert api.free_calls == []
+
+
+def test_listener_snapshot_raises_on_ip_helper_errors_without_free(monkeypatch):
+    api = FakeIphlpapi({}, errors={windows._AF_INET: 5})
+    _install_fake_iphlpapi(monkeypatch, api)
+
+    with pytest.raises(OSError) as error:
+        windows.listener_snapshot()
+
+    assert error.value.errno == 5
+    assert api.free_calls == []
+
+
+def test_listener_snapshot_retries_buffer_growth(monkeypatch):
+    api = FakeIphlpapi(
+        {
+            windows._AF_INET: _tcp_table(
+                _tcp_row(windows._TcpRowOwnerPid, "127.0.0.1", 8000, 51)
+            )
+        },
+        growth_retries={windows._AF_INET: 1},
+    )
+    _install_fake_iphlpapi(monkeypatch, api)
+
+    assert windows.listener_snapshot() == [
+        {"address": "127.0.0.1", "port": 8000, "pid": 51}
+    ]
+    assert sum(not call[0] and call[1] == windows._AF_INET for call in api.calls) == 2
+
+
+def test_listener_snapshot_caps_growth_retries_and_buffer_size(monkeypatch):
+    growing = FakeIphlpapi(
+        {windows._AF_INET: _tcp_table()},
+        growth_retries={windows._AF_INET: 10},
+    )
+    _install_fake_iphlpapi(monkeypatch, growing)
+
+    with pytest.raises(OSError) as retry_error:
+        windows.listener_snapshot()
+
+    assert retry_error.value.errno == windows._ERROR_INSUFFICIENT_BUFFER
+    assert (
+        sum(
+            not call[0] and call[1] == windows._AF_INET
+            for call in growing.calls
+        )
+        == 3
+    )
+    assert growing.free_calls == []
+
+    oversized = FakeIphlpapi(
+        {windows._AF_INET: _tcp_table()},
+        initial_size_overrides={
+            windows._AF_INET: windows._MAX_TCP_TABLE_BYTES + 1
+        },
+    )
+    _install_fake_iphlpapi(monkeypatch, oversized)
+
+    with pytest.raises(OSError) as size_error:
+        windows.listener_snapshot()
+
+    assert size_error.value.errno == windows._ERROR_INSUFFICIENT_BUFFER
+    assert len(oversized.calls) == 1
+    assert oversized.free_calls == []
