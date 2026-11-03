@@ -16,6 +16,10 @@ follows [Semantic Versioning](https://semver.org/).
   compatibility, request/context guards, conversation reset, draft recovery,
   busy/error messages, and keyboard behavior.
 
+- M12-R1 reproducible acceptance procedure and opt-in read-only evidence
+  collector: offline preparation, phase logs, PID/creation-time tracking,
+  resource observations, and distinct automatic/manual cleanup evidence.
+
 ### Fixed
 
 - M12 readiness uses the lightweight Core `/live` probe, avoiding expensive
@@ -28,7 +32,10 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Validation and release status
 
-- Latest local repair regression: **220 Python tests passed**. The earlier
+- M12-R1 targeted fake-only gate: **34 passed**; full local offline Python
+  regression: **254 passed** on 2026-11-03. This did not start services or
+  establish real-model or native-process acceptance.
+- Pre-R1 local repair regression: **220 Python tests passed**. The earlier
   JavaScript behavior gate passed 11 tests; it was not rerun locally after
   changes confined to launcher/configuration code.
 - Clean installation, real local cold start, browser conversation, contextual

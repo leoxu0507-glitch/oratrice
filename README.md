@@ -62,7 +62,7 @@ is still **BLOCKED**. The candidate is tracked in [PR #1](https://github.com/leo
 | Core infrastructure | Typed configuration and registries, provider contracts, decision-only routing, lifecycle management, and stable API boundaries |
 | Local deployment | Separate Core/Gateway environments, generated local-only configuration, offline diagnostics, and the Windows launcher |
 | Web conversation | Recent page-local context, request/context limits, New conversation, busy/error recovery, and keyboard controls |
-| Offline validation | Latest local Python repair gate: **220 passed**; the earlier JavaScript behavior gate: **11 passed**. Candidate CI runs separately on the PR. |
+| Offline validation | Latest local Python gate after M12-R1: **254 passed**; the earlier JavaScript behavior gate: **11 passed**. Candidate CI runs separately on the PR. |
 | Real local use | Clean installation, cold start, browser chat, contextual follow-up, busy recovery, and Ctrl+C cleanup passed in the recorded scope. |
 | Release blockers | Restart failed before readiness. The 30-minute run completed 30 requests, but private commit grew 596.7 MiB without a demonstrated plateau. Real-model window-close acceptance is incomplete. |
 
@@ -75,6 +75,8 @@ requirements.
 
 - [Project overview](docs/PROJECT-OVERVIEW.md): architecture, M1-M12 history,
   and accepted limitations.
+- [Next work](docs/PROJECT-OVERVIEW.md#next-work-proposed-sequence): M12 release
+  closeout, local conversation history, streaming, and pet status integration.
 - [M12 acceptance record](docs/validation/M12-RELEASE-SUMMARY.md): measured
   results, attempt limits, repairs, and remaining evidence.
 - [v0.2 candidate notes](docs/releases/v0.2.0.md): candidate scope and release
