@@ -63,7 +63,7 @@ a pre-release. Development targets **v0.2**, whose real-use acceptance remains
 | Local deployment | Fresh isolated Core/Gateway installation, generated local-only configuration, strict Doctor, dry-run, and the Windows launcher |
 | Web conversation | Bounded page-local context, New conversation, busy/error recovery, and keyboard controls; earlier real-use and injected-provider checks remain recorded separately |
 | Latest offline gate | **276 Python tests passed** (one dependency deprecation warning), plus **11 JavaScript tests passed**. [Code-candidate CI](https://github.com/leoxu0507-glitch/oratrice/actions/runs/41567738093) passed the same gates. |
-| Resumed real validation | Three bounded attempts completed on 2026-11-03. With GPU fitting enabled, both model servers loaded; the controller stopped before full Core readiness at 309.3 MiB available physical RAM. |
+| Resumed real validation | The recorded three-attempt pass stopped for resource headroom. A later explicitly requested run with 8425.4 MiB initial RAM also stopped at the unchanged guard (255.6 MiB available); full Core readiness was not confirmed. |
 | Release blockers | Post-repair full-chain readiness, restart, model-loaded console close, and sustained-memory stability are not accepted. No stable v0.2 tag or release has been created. |
 
 Generated profiles disable extra RAM-backed prompt caches and now default GPT

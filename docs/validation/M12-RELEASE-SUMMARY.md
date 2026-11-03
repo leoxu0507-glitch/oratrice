@@ -340,3 +340,50 @@ do not authorize another attempt by changing the harness or resetting the budget
 The candidate remains in draft PR #1. No stable v0.2.0 merge, tag, or release is
 authorized by this record; preserve the existing v0.1.0 tag and published history.
 Source and checksum preparation do not close the release blockers.
+
+## User-requested resource-window verification (2026-11-03)
+
+Disposition: **BLOCKED**. After the previous recorded window was closed, the
+operator explicitly requested real acceptance again. A new read-only preflight
+measured about 8307 MiB available RAM, materially higher than the 6476.5 MiB
+baseline of acceptance-03. One additional controlled experiment was authorized
+for this changed window. The original and repair-pass ledgers remain intact;
+this was not another three-run allowance or an unchanged automatic retry.
+
+The installed candidate's tracked bytes matched commit `f6cd3c9`. GPT GPU layers
+remained `auto`; both models retained `--cache-ram 0`, context 2048, one slot,
+and 16 threads. Gemma remained CPU-only and the profile local-only. The private
+controller required at least 8000 MiB available RAM before any process launch;
+the existing 512-MiB physical-RAM floor and other runtime/cleanup thresholds
+were not lowered. Artifacts are retained privately as
+`resource-window-20261103-01`; source, controller, and profile identities were
+recorded with the run.
+
+The experiment ran for 40.1 seconds. Actual baseline available RAM was
+8425.4 MiB and free GPU memory 7238 MiB. Both model servers loaded and listened
+on their configured endpoints. Before full Core readiness was confirmed,
+available RAM fell to 255.6 MiB; free GPU memory was 871 MiB, available commit
+20541.8 MiB, tracked private commit 7842.3 MiB, and summed tracked working set
+10489.5 MiB. The predeclared RAM guard stopped the controller. This establishes
+a headroom-floor violation, not a proven OOM crash or the cause of the earlier
+restart failure.
+
+No chat request, browser session, restart, soak, or normal console-close check
+was reached. The emergency Job finalizer reaped all observed owned processes;
+the native listener table then confirmed ports 4000, 8000, 8080, and 8090 free.
+After cleanup, available RAM was 10760.1 MiB and GPU use was 753 MiB, compared
+with 719 MiB at baseline. No user application was terminated. This cleanup
+remains emergency-abort evidence, not normal lifecycle acceptance. No second
+experiment was made in this window.
+
+The preflight review also found a private automation limitation: an external
+Node timeout could bypass the browser driver's JavaScript cleanup and leave
+its owned Edge process outside the launcher's Job. The browser phase was not
+started here, so that limitation did not affect this run's cleanup result.
+Any future automated browser run must close that ownership gap first; the
+public manual browser procedure does not launch that private driver.
+
+The shipped application code was unchanged. The existing 276-Python/11-JavaScript
+CI result remains offline evidence, not a pass for this experiment. R3 stays
+BLOCKED, R4 stays DEFERRED, and stable v0.2 remains unreleased. Further work
+must address concurrent-model RAM headroom before another full acceptance plan.
