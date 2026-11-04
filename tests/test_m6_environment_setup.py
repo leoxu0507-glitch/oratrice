@@ -40,8 +40,16 @@ def test_setup_script_declares_reproducible_selection_and_check_contract() -> No
     assert source.index('GetEnvironmentVariable("ORATRICE_PYTHON")') < source.index(
         'Get-Command -Name "py.exe"'
     )
-    assert "-3 -c" in source
+    assert 'Arguments @("-3", "-c", "import sys; print(sys.executable)")' in source
     assert "Python 3.10 or newer" in source
+
+    # Native stderr is captured without letting Windows PowerShell 5 promote
+    # it to a terminating error; the helper restores the caller preference.
+    assert '$previousErrorActionPreference = $ErrorActionPreference' in source
+    assert '$ErrorActionPreference = "Continue"' in source
+    assert '$ErrorActionPreference = $previousErrorActionPreference' in source
+    assert '& $Executable @Arguments 2>&1' in source
+    assert 'ExitCode = $exitCode' in source
 
     # A missing venv is created only at the resolved default or explicit path;
     # CheckOnly must fail before creation and before pip.
@@ -49,9 +57,9 @@ def test_setup_script_declares_reproducible_selection_and_check_contract() -> No
     assert "New-OratriceVenv" in source
     assert 'if ($CheckOnly)' in source
     assert "-CheckOnly found no virtual environment" in source
-    pip_call = "& $venvPython -m pip install -r $RequirementsPath"
+    pip_call = 'Invoke-NativeCapture -Executable $venvPython -Arguments @("-m", "pip", "install", "-r", $RequirementsPath'
     assert pip_call in source
-    assert "-c $ConstraintsPath" in source
+    assert '"-c", $ConstraintsPath' in source
     assert "-m pip install -r requirements.txt -c constraints.txt" in source
     assert source.index('if ($CheckOnly)') < source.index(pip_call)
     assert "Test-RequiredPackages -Interpreter $venvPython" in source
@@ -66,8 +74,8 @@ def test_setup_script_uses_local_requirements_and_does_not_mutate_machine_state(
         assert re.search(rf"(?m)^\s*{re.escape(package)}(?:[<>=!~]|\s|$)", requirements)
     assert "$RequirementsPath = Join-Path -Path $ProjectRoot -ChildPath \"requirements.txt\"" in source
     assert "$ConstraintsPath = Join-Path -Path $ProjectRoot -ChildPath \"constraints.txt\"" in source
-    assert "-r $RequirementsPath" in source
-    assert "-c $ConstraintsPath" in source
+    assert '"-r", $RequirementsPath' in source
+    assert '"-c", $ConstraintsPath' in source
 
     expected_constraints = {
         "PyYAML": "6.0.3",

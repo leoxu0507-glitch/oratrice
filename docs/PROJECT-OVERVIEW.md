@@ -1,6 +1,6 @@
 # Oratrice project overview
 
-This document summarizes the M1-M15 delivery history, current architecture,
+This document summarizes the M1-M16 delivery history, current architecture,
 and accepted limitations. Test counts refer only to recorded validation runs;
 live model evidence and offline pytest results are intentionally kept separate.
 
@@ -63,9 +63,10 @@ The main boundaries are:
 | M10 | Generated local configuration, isolated Gateway installation, strict offline diagnostics, portable CI definition | Historical M10 result: clean Windows/Python 3.13.5 install checks and 180 offline tests PASS; remote CI was not part of that validation and hardware stability remained deferred |
 | M11 | Bounded recent conversation, request limits, reset and recoverable UI behavior | Historical M11 result: 211 Python tests and 11 JavaScript checks passed; Edge acceptance used an injected provider; real-model acceptance was deferred |
 | M12 | Real-use acceptance, cache/diagnostic repairs, reproducible evidence collection, native listener tables, and automatic GPU fitting | PASS for default local text on the recorded host: real chat/UI, restart, Ctrl+C/console-close cleanup, and 1800-second sustained use. Offline code gate: 276 Python + 11 JavaScript tests. [M12 ledger](validation/M12-RELEASE-SUMMARY.md) |
-| M13 | Budget feedback, conversation exports, opt-in bounded browser retention, and recovery | Implemented, unreleased: 276 Python / 44 JavaScript tests and 12 injected-provider browser workflows passed |
-| M14 | Optional SSE replies, truthful Stop, bounded delivery, and iterator cleanup | Implemented, unreleased: 305 Python / 56 JavaScript tests, seven injected-provider browser workflows, and actual local stream/Stop/restart acceptance passed |
-| M15 | Shared safe execution status and an independent Tk status pet with a one-click entry | Implemented, unreleased: 372 Python / 63 JavaScript tests, six actual Tk/Edge/API workflows with an injected provider, and portable startup/close checks passed |
+| M13 | Budget feedback, conversation exports, opt-in bounded browser retention, and recovery | Included in the v0.3.0 scope; 276 Python / 44 JavaScript tests and 12 injected-provider browser workflows passed |
+| M14 | Optional SSE replies, truthful Stop, bounded delivery, and iterator cleanup | Included in the v0.3.0 scope; 305 Python / 56 JavaScript tests, seven injected-provider browser workflows, and actual local stream/Stop/restart acceptance passed |
+| M15 | Shared safe execution status and an independent Tk status pet with a one-click entry | Included in the v0.3.0 scope; 372 Python / 63 JavaScript tests, six actual Tk/Edge/API workflows with an injected provider, and portable startup/close checks passed |
+| M16 | Daily installation, integrated real-use acceptance, release packaging, and v0.3.0 closeout | Local acceptance PASS, including extracted-archive setup and smoke. Exact release source, CI, archive hashes, and publication are documented by the immutable GitHub release/tag. See the [M16 record](validation/M16-RELEASE-SUMMARY.md) |
 
 ## Current request path
 
@@ -128,8 +129,9 @@ not merged into the default profile.
    1536-unit budget (UTF-8 content bytes plus 32 framing units per message),
    and a 256-token reply cap. Refresh or New conversation resets it. There is
    no persistence, automatic summary, or streaming in that release. The
-   unreleased M13-M14 source adds optional browser retention, export, and
-   streamed replies with delivery-only Stop, with the same context limits.
+   M13-M15 work included in v0.3.0 adds optional browser retention, export, streamed
+   replies with delivery-only Stop, and a standalone status companion, with the
+   same context limits.
    The API requires one
    worker for the default profile's single-model admission guarantee.
 6. Measurements and soak evidence are limited to the tested host and settings.
@@ -139,9 +141,10 @@ not merged into the default profile.
 ## Next work: proposed sequence
 
 M12 default local-text acceptance passed under the recorded operator-directed
-criteria. M13-M15 are implemented in the current source and remain unreleased.
-Existing Core, router, provider, and launcher boundaries stay in place; use
-configuration and existing ports when extending the product.
+criteria. M13-M15 are included in v0.3.0 after M16 local acceptance.
+The immutable release tag and attached evidence identify the exact source and
+publication. M16 adds no new assistant behavior. Existing Core, router, provider, and launcher boundaries stay in
+place; use configuration and existing ports when extending the product.
 
 ### M12 closeout: reproducible local acceptance and v0.2
 
@@ -174,7 +177,7 @@ The [live testing guide](architecture/LIVE_TESTING.md) describes the existing
 harness limits and the acceptance handoff. Do not add new product features to
 make a blocked acceptance result appear complete.
 
-### M13: retain useful conversations under user control (implemented, unreleased)
+### M13: retain useful conversations under user control (included in v0.3.0)
 
 Start with export and explicit opt-in local history after M12 is accepted.
 Stored conversations are user documents, not model Memory. Keep the existing
@@ -233,7 +236,7 @@ browser/API integration evidence, not another real-model or soak benchmark.
 Private validation logs and disposable browser profiles remain excluded
 from source. Published v0.2.0 assets and tags are unchanged.
 
-### M14: incremental replies and truthful stop behavior (implemented, unreleased)
+### M14: incremental replies and truthful stop behavior (included in v0.3.0)
 
 The provider contract already exposes `ChatChunk` and streaming, and
 `CoreFacade.stream` exists. Reuse those ports; the missing work is the public
@@ -294,7 +297,7 @@ cancellation. Slow-consumer and deadline edge cases above use offline fakes,
 not a real-model stress run. Raw logs, generated profiles, and browser data
 remain private under ignored `work/`; no new release or tag was published.
 
-### M15: desktop pet as a status surface (implemented, unreleased)
+### M15: desktop pet as a status surface (included in v0.3.0)
 
 Keep conversation in the Web UI. The first pet integration observes status and
 opens that UI; it does not become another model client or lifecycle manager.
@@ -352,6 +355,57 @@ scope error, and the first portable smoke waited on an inherited test pipe.
 Corrected bounded runs passed; cleanup reaped tracked identities and freed
 the fixture listener. M15 did not reload real models or repeat the M12 soak;
 M14's real-model evidence remains separate. Published tags are unchanged.
+
+### M16: local acceptance complete; v0.3.0 release evidence
+
+M13-M15 define the v0.3.0 feature scope. M16 completed the local acceptance on
+the operator's Windows environment, including a real-model session and an
+extracted-archive smoke. The published v0.2.0 history remains unchanged. Verify
+the exact release source, CI, archive manifest, and checksums from the immutable
+GitHub `v0.3.0` tag and its release assets. M16 adds no new model,
+provider, cloud fallback, or agent behavior.
+
+| Task | Scope | Completion evidence |
+| --- | --- | --- |
+| M16.1: Daily installation | Use the documented setup and local-profile tools with user-supplied Python, llama.cpp runtime, and model files. Keep generated settings and machine paths private. | **PASS.** On Windows 11 build 26200 / Python 3.13.5 / LiteLLM 1.74.3 / llama.cpp b9843, canonical setup, local configuration, strict Doctor, and dry-run passed; cold readiness was 42.239 s. |
+| M16.2: Integrated real-use acceptance | Cover cold start, ordinary chat, contextual follow-up, failure recovery, streaming/Stop, status pet, browser opening, close, restart, and bounded sequential use. Observe response and resource trends and owned process identities. | **PASS for the recorded host and workload.** Five Edge UI workflows passed; the sixth native Tk Open chat check invoked the Windows browser opener. Restart readiness was 37.724 s. The 1800.45 s session delivered 30 sequential HTTP 200 requests / 15 follow-up pairs; latency was 11.949 s median / 20.637 s maximum. See the [M16 ledger](validation/M16-RELEASE-SUMMARY.md) for resource bounds and limitations. |
+| M16.3: Reproducible v0.3 source package | Build from one committed source tree; include relative launcher layout, English setup and limits, provenance manifest, and SHA-256; exclude profiles, credentials, model weights, environments, caches, and raw logs. Exercise installation with user-supplied Python/Tk, llama.cpp/DLLs, and models. | **Local package smoke PASS.** Extracted archive setup, local configuration, strict Doctor, and dry-run passed in a path containing spaces. Gateway was fresh; Core reused the partial environment from the first attempt. Default startup, UI/assets, local chat/stream, pet close, and launcher cleanup passed. Verify the final artifact identity from the GitHub release assets. |
+| M16.4: Release integrity | Match source commit, exact-source CI, archive manifest/checksum, and published release. | Use the immutable GitHub `v0.3.0` tag, its linked Actions run, `RELEASE-MANIFEST.json`, and `SHA256SUMS.txt` as the release authority. This local acceptance report does not treat the earlier candidate CI as final-source evidence. |
+
+**Local acceptance result:** PASS on the recorded Windows host. During the session,
+available physical RAM reached 125.7 MiB and was observed without aborting.
+Across 120 samples, tracked Core memory grew 457.6 MiB overall / 8.4 MiB in
+the final third, and the pet grew 1.8 MiB, within the predeclared 512 / 256 /
+32 MiB bounds. This bounded trend result does not establish leak-free
+continuous operation. A manually overridden 64-token request returned HTTP
+200 with empty text; the documented 256-token default returned the expected
+marker in later acceptance. No cause was established for the low-budget
+observation. The actual Tk button invoked the Windows browser opener
+successfully; the exact opened system-browser tab was not inspected. The
+separate Edge CDP page run passed.
+
+The model SHA-256 values recorded for this run are GPT-OSS
+`75acd89545d50126692df2116bc3fdf700408b4be1d74d58e8eed13bca028f17` and
+Gemma-3n-E4B
+`ef5c72473575ce0b162c0289f5f3ef983ca99fc2f2272efd5871f6bccc3fb49a`.
+The tested runtime files matched baseline `1e91caf1699b278c4c2a9b4bd39a3f8945f740b9`;
+the earlier package/tests/docs candidate was `fa69ab6bfeeae49a578f4276e706637ffbbcf53e`.
+
+The second extracted-archive setup used Windows PowerShell 5.1.26100.9711. The
+default launcher reached ready, the UI and four JavaScript assets returned HTTP
+200, local chat returned `PACKAGE_OK`, and streaming returned `STREAM_OK`. The
+pet closed while Core remained ready; classic-console close reaped 11 owned
+launcher identities and freed ports 8000, 8080, 8090, and 4000 before the outer
+guard. All `*_API_KEY` variables were unset; the launcher supplied an ephemeral
+local Gateway key. A 75-file operational comparison matched release-candidate
+Git blobs except for line-ending normalization.
+
+See the [M16 ledger](validation/M16-RELEASE-SUMMARY.md) for exact sample
+boundaries, cleanup evidence, the package command, and release-integrity
+references. The v0.3.0 release keeps
+the existing 12-prior-message / 1536-unit input limits and 256-token reply
+cap. OpenPets SDK integration, Qwen-VL through LiteLLM, cloud inference, voice,
+model Memory, Tools, and Agents remain deferred.
 
 After these milestones, select additional work from actual usage. Vision,
 cloud-provider acceptance, voice, cross-session model Memory, Tools, Agents,
